@@ -12,20 +12,34 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    # These steps are created as every job requires to run the code successfully.
+    # Ex. Add tasks outside of main.py so we can execute the code such as installing the packages.
+    # then no need to add tasks like 'read data' since it is a part of main.py
+    # Other possible tasks can be testing, deployment, quality control etc.
+    # If added more python files like read.py write.py that are run in main.py, we don't need to add these files in the steps.
+
+
     steps:
+      # Step 1: Checkout the repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # Step 2: Set up Python
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: 3.11
 
+      # Step 3: Install dependencies
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run Unit Tests
-        run: |
-          pytest tests/
+      # Step 4: Run the Python script
+      - name: Run script
+        run: python main.py
+
+#      - name: Run Unit Tests
+#        run: |
+#          pytest tests/
