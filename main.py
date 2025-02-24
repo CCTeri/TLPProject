@@ -1,4 +1,3 @@
-import pandas as pd
 import yaml, os
 from dotenv import load_dotenv
 from src.logger import init_logger
@@ -23,6 +22,10 @@ logger.info(f'[>] Running TLP Project: Niche Market Research for Cargo')
 
 # Read data
 df_wacd = Reader(settings, logger).read_data()
+
+if df_wacd is not None:
+    print("Market data loaded successfully!")
+    print(df_wacd.head())
 
 logger.info('[V] Finished')
 

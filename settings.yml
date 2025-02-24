@@ -1,4 +1,18 @@
+# Logging info
+log_level: "debug"
+
+# General project info
+project_name: "Niche Market Research"
+project_version: "v2025.02"
+
+# Run settings: select a period
+period_month: '202310' # YYYYMM
+
+# Data Location
 project_input: "data/input/"
 
 # Input Data Files
-wacd_carriers: 'WACD_202212-202312.csv'
+WACD_Local: 'WACD_202212-202312.csv'
+
+
+

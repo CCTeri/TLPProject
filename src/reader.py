@@ -1,7 +1,7 @@
 import pandas as pd
-import numpy as np
-import zipfile
-from typing import Tuple
+# import numpy as np
+# import zipfile
+# from typing import Tuple
 from datetime import datetime
 # from sqlalchemy import create_engine, text
 # from sqlalchemy.engine import URL
@@ -53,9 +53,14 @@ class Reader(object):
         """
         self.logger.info(f'\t\t[>] Reading geographic hierarchy file')
         path = self.settings['project_input'] + self.settings['WACD_Local']
-        df = pd.read_csv(path, sep=',', index_col=False)
 
-        return df
+        try:
+            df = pd.read_csv(path, sep=';', index_col=False)
+            return df
+
+        except Exception as e:
+            print(f"Error reading market data: {e}")
+            return None
 
     # def _read_market_data(self):
     #     """

@@ -1,4 +1,4 @@
-import logging, os, time
+import logging
 
 def init_logger(settings):
     log_level = settings['log_level']
