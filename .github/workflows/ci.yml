@@ -40,6 +40,6 @@ jobs:
       - name: Run script
         run: python main.py
 
-#      - name: Run Unit Tests
-#        run: |
-#          pytest tests/
+      - name: Run Unit Tests
+        run: |
+          pytest tests/
