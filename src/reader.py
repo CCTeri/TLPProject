@@ -3,9 +3,9 @@ import numpy as np
 import zipfile
 from typing import Tuple
 from datetime import datetime
-from sqlalchemy import create_engine, text
-from sqlalchemy.engine import URL
-from itertools import product
+# from sqlalchemy import create_engine, text
+# from sqlalchemy.engine import URL
+# from itertools import product
 from dateutil.relativedelta import relativedelta
 
 class Reader(object):

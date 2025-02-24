@@ -22,7 +22,7 @@ logger = init_logger(settings)
 logger.info(f'[>] Running TLP Project: Niche Market Research for Cargo')
 
 # Read data
-df_wacd = Reader(settings, logger).read_data(from_sql = False)
+df_wacd = Reader(settings, logger).read_data()
 
 logger.info('[V] Finished')
 
