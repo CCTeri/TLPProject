@@ -43,3 +43,26 @@ jobs:
       - name: Run Unit Tests
         run: |
           pytest tests/
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Authenticate with Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
+
+      - name: Deploy to Cloud Run from Source (No Docker Image)
+        run: |
+          gcloud run deploy niche-market-product \
+              --source . \
+              --platform=managed \
+              --region=us-central1 \
+              --allow-unauthenticated
