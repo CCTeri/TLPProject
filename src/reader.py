@@ -51,11 +51,11 @@ class Reader(object):
         :return:
             pandas.Dataframe: Market data for a year
         """
-        self.logger.info(f'\t\t[>] Reading geographic hierarchy file')
+        self.logger.info(f'\t\t[>] Reading WACD file')
         path = self.settings['project_input'] + self.settings['WACD_Local']
 
         try:
-            df = pd.read_csv(path, sep=';', index_col=False)
+            df = pd.read_csv(path, sep="_", index_col=False)
             return df
 
         except Exception as e:

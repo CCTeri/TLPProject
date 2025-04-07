@@ -12,7 +12,7 @@ period_month: '202310' # YYYYMM
 project_input: "data/input/"
 
 # Input Data Files
-WACD_Local: 'WACD_202212-202312.csv'
+WACD_Local: 'AF_KL_MP_20240101-20250101_product.csv'
 
 
 
