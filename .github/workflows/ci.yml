@@ -59,6 +59,13 @@ jobs:
       - name: Set up Google Cloud SDK
         uses: google-github-actions/setup-gcloud@v1
 
+      # TODO: Create an artifact to store output etc
+
+      - name: Verify GCP connection (list active account and project)
+        run: |
+          gcloud auth list
+          gcloud config list project
+
       - name: Deploy to Cloud Run from Source (No Docker Image)
         run: |
           gcloud run deploy niche-market-product \
