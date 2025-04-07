@@ -11,5 +11,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the rest of the application code
 COPY . .
 
+# Setting port
+EXPOSE 8080
+
 # Command to run the application
-CMD ["python", "main.py"]
+CMD ["python", "server.py"]

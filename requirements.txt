@@ -25,3 +25,4 @@ threadpoolctl==3.5.0
 toml==0.10.2
 tzdata==2024.2
 pytest==8.0.0
+flask
