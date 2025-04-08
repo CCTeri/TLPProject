@@ -18,12 +18,14 @@ def run_project():
     # Read data from GCS
     bucket_name = 'tlp_project_demo'
     gcs_input_path = 'Input/marketdata500.csv'
-    df_wacd = Reader(settings, logger).read_data(bucket_name, gcs_input_path)
+    # df_wacd = Reader(settings, logger).read_data(bucket_name, gcs_input_path)
+    df_wacd = Reader(settings, logger).read_data()
 
-    # Write output directory in GCP
-    gcs_output_path = 'Output/top_30_marketdata.csv'  # Define the output path for the CSV
-    Writer(settings, logger).write_data(df_wacd, bucket_name, gcs_output_path)  # Call the function from writer.py
-    logger.info(f"Data saved to {gcs_output_path}")
+
+    # # Write output directory in GCP
+    # gcs_output_path = 'Output/top_30_marketdata.csv'  # Define the output path for the CSV
+    # Writer(settings, logger).write_data(df_wacd, bucket_name, gcs_output_path)  # Call the function from writer.py
+    # logger.info(f"Data saved to {gcs_output_path}")
 
     # Complete the job
     logger.info('[V] Finished')

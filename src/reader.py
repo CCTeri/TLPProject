@@ -32,7 +32,7 @@ class Reader(object):
 
         pass
 
-    def read_data(self, bucket_name, gcs_input_path):
+    def read_data(self):
         """
         Read the input data
 
