@@ -18,7 +18,7 @@ def run_project():
     # Read data from GCS
     bucket_name = 'tlp_project_demo'
     gcs_input_path = 'Input/marketdata500.csv'
-    df_wacd = Reader(settings, logger).read_data_from_gcs(bucket_name, gcs_input_path)
+    df_wacd = Reader(settings, logger).read_data(bucket_name, gcs_input_path)
 
     # Write output directory in GCP
     gcs_output_path = 'Output/top_30_marketdata.csv'  # Define the output path for the CSV
