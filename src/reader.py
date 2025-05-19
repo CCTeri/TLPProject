@@ -57,11 +57,16 @@ class Reader:
         """
         Internal: Download and parse a CSV from GCS.
         """
+        # Authenticate with Google Cloud Storage
         client = storage.Client()
         try:
+            # Reference the bucket that we want to use
             bucket = client.bucket(bucket_name)
+            # Reference the specific file within that bucket
             blob = bucket.blob(file_name)
+            # Download the blob contents from GCS into memory
             data = blob.download_as_text()
+            # Parse that text with pandas using StringID and returns DF in one shot
             return pd.read_csv(StringIO(data), sep='\t')
         except Exception as e:
             self.logger.error(f"Error reading file {file_name} from bucket {bucket_name}: {e}")

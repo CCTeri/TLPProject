@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - 'coding/**'
   pull_request:
     branches:
       - main
