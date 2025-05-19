@@ -15,8 +15,6 @@ class Writer(object):
         :param bucket_name: The GCS bucket name
         :param output_path: The GCS path where the file will be saved
         """
-        # Select the top 30 rows of the DataFrame
-        df_top_30 = df.head(30)
 
         # Create a GCS client
         client = storage.Client()
@@ -29,5 +27,10 @@ class Writer(object):
 
         # Save the top 30 rows to CSV in memory and upload to GCS
         with blob.open("w") as f:
-            df_top_30.to_csv(f, index=False)
-        self.logger.info(f"Top 30 rows saved to {output_path} in GCS")
+            df.to_csv(f, index=False)
+        self.logger.info(f"The prediction is saved to {output_path} in GCS")
+
+        # TODO: add another output that shows rising market (=> can be shown in the dashboard?)
+        # TODO: Connect Power BI with the output of GCS
+        # Q. How can i see the output in the GCS in a table format?
+

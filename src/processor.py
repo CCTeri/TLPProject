@@ -25,9 +25,9 @@ class DataProcessor:
         self.logger.info('[>] Begin data processing')
         df = self._clean(df)
         df_product, df_route = self._prepare_data_product_demand(df)
-        df_feature = self._build_feature_actual_revenue(df_route)
-        df_feature = self._build_feature_seasonality(df_feature)
-        df_feature = self._build_feature_last_month(df_feature)
+        df_feature = self._build_feature_revenue(df_route)
+        # df_feature = self._build_feature_seasonality(df_feature)
+        # df_feature = self._build_feature_last_month(df_feature)
 
         return df_feature
 
@@ -97,10 +97,11 @@ class DataProcessor:
 
         # Weight Share = what is the % of weight share does the product have for the OD pair
         df_route['weight_share'] = df_route['benchmark_actual_weight'] / df_route['total_weight']
+        df_route['weight_share'] = df_route['weight_share'] .fillna(0)
 
         return df_product, df_route
 
-    def _build_feature_actual_revenue(self, df_route: pd.DataFrame) -> pd.DataFrame:
+    def _build_feature_revenue(self, df_route: pd.DataFrame) -> pd.DataFrame:
         """
         Building features
         """
@@ -109,17 +110,13 @@ class DataProcessor:
         df = df_route.copy()
 
         # Get the total actual and revenue weight on OD per month
-        df['total_actual_weight'] = df.groupby(
-            ['origin_city', 'destination_city', 'date']
-        )['benchmark_actual_weight'].transform('sum')
-
         df['total_revenue'] = df.groupby(
             ['origin_city', 'destination_city', 'date']
         )['benchmark_revenue'].transform('sum')
 
         # Get the share of the product
-        df['share_actual'] = df['benchmark_actual_weight'] / df['total_actual_weight']
         df['share_revenue'] = df['benchmark_revenue'] / df['total_revenue']
+        df['share_revenue'] = df['share_revenue'].fillna(0)
 
         return df
 
