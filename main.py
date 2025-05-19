@@ -4,32 +4,47 @@ import pandas as pd
 from src.logger import init_logger
 from src.reader import Reader
 from src.writer import Writer
-
+from src.processor import DataProcessor
 
 def run_project():
-    # Load settings from settings.yml file and environment variables
-    with open('settings.yml', 'r') as f:
-        settings = yaml.load(f, Loader=yaml.FullLoader)
+    """
+    Executes the TLP Project pipeline:
+      1. Load settings
+      2. Initialize logger
+      3. Read data (GCS or local)
+      4. Process data
+      5. Write output
+    """
+    # Load settings file
+    settings_path = os.getenv('SETTINGS_PATH', 'settings.yml')
+    with open(settings_path, 'r') as f:
+        settings = yaml.safe_load(f)
 
-    # Initialize logger for a selected period
+    # Initialize logger
     logger = init_logger(settings)
-    logger.info(f'[>] Running TLP Project: Niche Market Research for Cargo')
+    logger.info('Starting TLP Project: Niche Market Research for Cargo')
 
-    # Read data from GCS
-    bucket_name = 'tlp_project_demo'
-    gcs_input_path = 'Input/marketdata500.csv'
-    # df_wacd = Reader(settings, logger).read_data(bucket_name, gcs_input_path)
-    df_wacd = Reader(settings, logger).read_data()
+    # Data source configuration
+    bucket = settings.get('gcs_bucket', 'tlp_project_demo')
+    gcs_input = settings.get('gcs_input_path', 'Input/marketdata500.csv')
 
+    # Read data
+    logger.info(f'Reading data from gs://{bucket}/{gcs_input}')
+    df_wacd = Reader(settings, logger).read_data(bucket, gcs_input)
 
-    # # Write output directory in GCP
-    # gcs_output_path = 'Output/top_30_marketdata.csv'  # Define the output path for the CSV
-    # Writer(settings, logger).write_data(df_wacd, bucket_name, gcs_output_path)  # Call the function from writer.py
-    # logger.info(f"Data saved to {gcs_output_path}")
+    # Process data
+    logger.info('Processing data')
+    df_processed = DataProcessor(settings, logger).process_data(df_wacd)
 
-    # Complete the job
-    logger.info('[V] Finished')
+    # Output configuration
+    output_bucket = settings.get('gcs_bucket', bucket)
+    output_path = settings.get('gcs_output_path', 'Output/top_30_marketdata.csv')
 
+    # Write results
+    logger.info(f'Writing processed data to gs://{output_bucket}/{output_path}')
+    Writer(settings, logger).write_data(df_processed, output_bucket, output_path)
 
-if __name__ == "__main__":
+    logger.info('TLP Project completed successfully')
+
+if __name__ == '__main__':
     run_project()

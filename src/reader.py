@@ -1,83 +1,68 @@
 import pandas as pd
-# import numpy as np
-# import zipfile
-# from typing import Tuple
+from io import StringIO
+from google.cloud import storage
 from datetime import datetime
-# from sqlalchemy import create_engine, text
-# from sqlalchemy.engine import URL
-# from itertools import product
 from dateutil.relativedelta import relativedelta
-import pandas as pd
-import gcsfs
 
-class Reader(object):
+
+class Reader:
     """
-    Class to read in the input data
+    Reader for market data, supporting both local files and GCS.
 
     Args:
-        settings (dict): Project settings
-        logger (logging.Logger): Logger object
+        settings (dict): Project settings containing 'period_month', 'project_input', etc.
+        logger (logging.Logger): Logger object for informational and error messages.
     """
 
-    def __init__(self, settings, logger):
+    def __init__(self, settings: dict, logger):
         self.settings = settings
         self.logger = logger
 
-        # Set the Year Month to datetime
-        self.period_month = datetime.strptime(self.settings['period_month'], '%Y%m').strftime('%Y%m')
+        # Parse the reporting period
+        period = datetime.strptime(settings['period_month'], '%Y%m')
+        self.period_month = period.strftime('%Y%m')
+        self.start_date = period.strftime('%Y-%m-%d')
+        self.end_date = (period + relativedelta(months=1) - relativedelta(days=1)).strftime('%Y-%m-%d')
 
-        # Start and End date are used to determine which Market data to read
-        self.start_date = datetime.strptime(self.settings['period_month'], '%Y%m').strftime('%Y-%m-%d')
-        self.end_date = (datetime.strptime(self.settings['period_month'], '%Y%m') + relativedelta(months = 1) - relativedelta(days = 1)).strftime('%Y-%m-%d')
-
-        pass
-
-    def read_data(self):
+    def read_data(self, bucket_name: str, file_name: str) -> pd.DataFrame:
         """
-        Read the input data
+        Read data from GCS.
 
         Args:
+            bucket_name (str): Name of the GCS bucket.
+            file_name (str): Path to the file within the bucket.
+
         Returns:
-            df_wacd (pandas.DataFrame): Market data from WACD for every carrier on city-city level per period (month)
+            pd.DataFrame: Loaded data frame.
         """
-        self.logger.info(f'[>] Reading data')
+        self.logger.info(f"[>] Reading data from GCS: {bucket_name}/{file_name}")
+        return self._read_from_gcs(bucket_name, file_name)
 
-        df_wacd = self._read_WACD_local_data()
-        # df_wacd = self.read_data_from_gcs(bucket_name, gcs_input_path)
-
-        return df_wacd
-
-    def _read_WACD_local_data(self):
+    def read_local(self) -> pd.DataFrame:
         """
-        Read a local WACD data
+        Read the local WACD file defined in settings.
 
-        :return:
-            pandas.Dataframe: Market data for a year
+        Returns:
+            pd.DataFrame: Loaded data frame.
         """
-        self.logger.info(f'\t\t[>] Reading WACD file')
-        path = self.settings['project_input'] + self.settings['WACD_Local']
-
+        path = f"{self.settings['project_input']}/{self.settings['WACD_Local']}"
+        self.logger.info(f"[>] Reading local file: {path}")
         try:
-            df = pd.read_csv(path, sep="\t", index_col=False)
-            return df
-
+            return pd.read_csv(path, sep="\t")
         except Exception as e:
-            print(f"Error reading market data: {e}")
-            return None
+            self.logger.error(f"Error reading local file {path}: {e}")
+            return pd.DataFrame()
 
-    def read_data_from_gcs(self, bucket_name, file_name):
+    def _read_from_gcs(self, bucket_name: str, file_name: str) -> pd.DataFrame:
         """
-        Reads a CSV file from Google Cloud Storage (GCS)
-        :param gcs_path: The GCS path to the input file
-        :return: DataFrame
+        Internal: Download and parse a CSV from GCS.
         """
-        client = storage.Client()  # Create a GCS client
+        client = storage.Client()
         try:
-            bucket = client.get_bucket(bucket_name)  # Get the GCS bucket
-            blob = bucket.blob(file_name)  # Get the file within the bucket
-            data = blob.download_as_text()  # Download file as text
-            df = pd.read_csv(pd.compat.StringIO(data))  # Convert text to pandas DataFrame
-            return df
+            bucket = client.bucket(bucket_name)
+            blob = bucket.blob(file_name)
+            data = blob.download_as_text()
+            return pd.read_csv(StringIO(data))
         except Exception as e:
-            self.logger.error(f"Error reading file {file_name} from GCS bucket {bucket_name}: {e}")
-            return None
+            self.logger.error(f"Error reading file {file_name} from bucket {bucket_name}: {e}")
+            return pd.DataFrame()

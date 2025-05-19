@@ -2,7 +2,7 @@ import pandas as pd
 from google.cloud import storage
 import io
 
-class Writer:
+class Writer(object):
     def __init__(self, settings, logger):
         self.settings = settings
         self.logger = logger
