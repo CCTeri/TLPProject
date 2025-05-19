@@ -19,10 +19,10 @@ class Reader:
         self.logger = logger
 
         # Parse the reporting period
-        period = datetime.strptime(settings['period_month'], '%Y%m')
-        self.period_month = period.strftime('%Y%m')
-        self.start_date = period.strftime('%Y-%m-%d')
-        self.end_date = (period + relativedelta(months=1) - relativedelta(days=1)).strftime('%Y-%m-%d')
+        # period = datetime.strptime(settings['period_month'], '%Y%m')
+        # self.period_month = period.strftime('%Y%m')
+        # self.start_date = period.strftime('%Y-%m-%d')
+        # self.end_date = (period + relativedelta(months=1) - relativedelta(days=1)).strftime('%Y-%m-%d')
 
     def read_data(self, bucket_name: str, file_name: str) -> pd.DataFrame:
         """
