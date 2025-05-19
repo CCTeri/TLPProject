@@ -2,11 +2,11 @@
 log_level: "debug"
 
 # General project info
-project_name: "Niche Market Research"
+project_name: "Product Popularity Model"
 project_version: "v2025.02"
 
 # Run settings: select a period
-period_month: '202310' # YYYYMM
+period_month: '202501' # YYYYMM
 
 # Data Location
 project_input: "data/input/"

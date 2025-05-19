@@ -62,7 +62,7 @@ class Reader:
             bucket = client.bucket(bucket_name)
             blob = bucket.blob(file_name)
             data = blob.download_as_text()
-            return pd.read_csv(StringIO(data))
+            return pd.read_csv(StringIO(data), sep='\t')
         except Exception as e:
             self.logger.error(f"Error reading file {file_name} from bucket {bucket_name}: {e}")
             return pd.DataFrame()

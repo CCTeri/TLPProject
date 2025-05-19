@@ -26,7 +26,7 @@ def run_project():
 
     # Data source configuration
     bucket = settings.get('gcs_bucket', 'tlp_project_demo')
-    gcs_input = settings.get('gcs_input_path', 'Input/marketdata500.csv')
+    gcs_input = settings.get('gcs_input_path', 'Input/market_20240101-20250101_product.csv')
 
     # Read data
     logger.info(f'Reading data from gs://{bucket}/{gcs_input}')
