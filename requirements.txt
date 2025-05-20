@@ -27,3 +27,4 @@ tzdata==2024.2
 pytest==8.0.0
 flask
 gcsfs
+lightgbm>=3.3

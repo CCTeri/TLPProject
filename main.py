@@ -5,6 +5,7 @@ from src.logger import init_logger
 from src.reader import Reader
 from src.writer import Writer
 from src.processor import DataProcessor
+from src.modeler import Modeler
 
 def run_project():
     """
@@ -34,15 +35,22 @@ def run_project():
 
     # Process data
     logger.info('Processing data')
-    df_processed = DataProcessor(settings, logger).process_data(df_wacd)
+    df_route = DataProcessor(settings, logger).process_data(df_wacd)
+
+    # Train the model on historical route×product data
+    modeler = Modeler(settings, logger)
+    modeler.train(df_route)
+
+    # Forecast for Feb 2025
+    top_feb25 = modeler.predict_future(df_route, date='2025-02')
 
     # Output configuration
     output_bucket = settings.get('gcs_bucket', bucket)
-    output_path = settings.get('gcs_output_path', 'Output/top_30_marketdata.csv')
+    output_path = settings.get('gcs_output_path', 'Output/predicted_product_share.csv')
 
     # Write results
     logger.info(f'Writing processed data to gs://{output_bucket}/{output_path}')
-    Writer(settings, logger).write_data(df_processed, output_bucket, output_path)
+    Writer(settings, logger).write_data(top_feb25, output_bucket, output_path)
 
     logger.info('TLP Project completed successfully')
 
