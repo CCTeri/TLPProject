@@ -39,9 +39,11 @@ def run_project():
 
     # Train the model on historical route×product data
     modeler = Modeler(settings, logger)
+
+    # TODO: seperate main file for train and predict. then predict only goes to GCS
     modeler.train(df_route)
 
-    # Forecast for Feb 2025
+    # Forecast for Feb 2025 (Out of sample)
     top_feb25 = modeler.predict_future(df_route, date='2025-02')
 
     # Output configuration
