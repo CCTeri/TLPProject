@@ -3,7 +3,9 @@ name: CI Pipeline
 on:
   push:
     branches:
+      # by adding the branches, we can trigger the github action
       - main
+      - 'coding/**' # using / and * requires ""
   pull_request:
     branches:
       - main
