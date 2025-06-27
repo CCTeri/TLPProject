@@ -21,4 +21,5 @@ COPY . .
 EXPOSE 8080
 
 # Command to run the application
+# Use server.py as the container’s entrypoint on Cloud Run, so HTTP hits will invoke the same pipeline under Flask.
 CMD ["python", "server.py"]

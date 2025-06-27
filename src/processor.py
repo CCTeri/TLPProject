@@ -28,6 +28,7 @@ class DataProcessor:
         df_feature = self._build_feature_revenue(df_route)
         # df_feature = self._build_feature_seasonality(df_feature)
         # df_feature = self._build_feature_last_month(df_feature)
+        df_feature = self._add_product_trends(df_feature)
 
         return df_feature
 
@@ -168,6 +169,46 @@ class DataProcessor:
         df = df.fillna(0)
 
         return df
+
+    def _add_product_trends(self, df):
+        """
+        This function is used to get a product trend and only used for a visualization with historic data.
+
+        :param df:
+        :return:
+        """
+        df = df.sort_values(['origin_city', 'destination_city', 'product', 'date'])
+
+        df['weight_share_lag1'] = df.groupby(['origin_city', 'destination_city', 'product'])['weight_share'].shift(
+            1)
+
+        df['trend'] = df.apply(
+            lambda row: self._classify_trend(row['weight_share'], row['weight_share_lag1']), axis=1
+        )
+
+        return df
+
+    @staticmethod
+    def _classify_trend(current, previous):
+        """
+        Classify the trend from historic data.
+
+        :param current:
+        :param previous:
+        :return:
+        """
+
+        if pd.isna(previous) and current > 0:
+            return 'new'
+        elif current == 0 and previous > 0:
+            return 'disappeared'
+        elif current > previous:
+            return 'growth'
+        elif current < previous:
+            return 'decline'
+        else:
+            return 'stable'
+
 
 
 
