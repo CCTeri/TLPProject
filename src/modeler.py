@@ -47,7 +47,7 @@ class Modeler:
         """
         TARGET = 'weight_share'
         FEATURES = [col for col in df_route.columns
-                    if col not in {TARGET, 'date', 'product', 'origin_city', 'destination_city'}]
+                    if col not in {TARGET, 'date', 'product', 'origin_city', 'destination_city', 'product_trend'}]
         LAST = df_route['date'].max()
 
         # Split the data based on time
@@ -101,7 +101,7 @@ class Modeler:
         # 6) Define the exact same feature list used in training
         TARGET = 'weight_share'
         FEATURES = [col for col in df_route.columns
-                    if col not in {TARGET, 'date', 'product', 'origin_city', 'destination_city'}]
+                    if col not in {TARGET, 'date', 'product', 'origin_city', 'destination_city', 'product_trend'}]
 
         # 7) Run the model
         df_fut['pred_share'] = self.model.predict(df_fut[FEATURES])
