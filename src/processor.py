@@ -334,7 +334,7 @@ class DataProcessor:
 
     def _classify_product_trends(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Classify product trends for business insight and visualization.
+        Classify product trends for Spotfire dashabord business insight and visualization.
 
         This method identifies whether each product is experiencing growth, decline,
         stability, or market entry/exit patterns. The classification compares current
