@@ -15,6 +15,7 @@ class DataProcessor:
     def __init__(self, settings: dict, logger):
         self.settings = settings
         self.logger = logger
+        self.trend_threshold = settings.get('trend_threshold', 0.02)  # fallback to 2% if not set
 
         pass
 
@@ -26,8 +27,8 @@ class DataProcessor:
         df = self._clean(df)
         df_product, df_route = self._prepare_data_product_demand(df)
         df_feature = self._build_feature_revenue(df_route)
-        # df_feature = self._build_feature_seasonality(df_feature)
-        # df_feature = self._build_feature_last_month(df_feature)
+        df_feature = self._build_feature_seasonality(df_feature)
+        df_feature = self._build_feature_last_month(df_feature)
         df_feature = self._add_product_trends(df_feature)
 
         return df_feature
@@ -35,6 +36,8 @@ class DataProcessor:
     def _clean(self, df) -> pd.DataFrame:
         """
         Clean raw data: drop NAs, correct dtypes, etc.
+
+        :return: Dataframe with only valid, clean, monthly-level records remain for modeling
         """
         self.logger.info(f'\t[>] Begin data cleaning')
         df = df.copy()
@@ -59,7 +62,7 @@ class DataProcessor:
 
         return df
 
-    def _prepare_data_product_demand (self, df:pd.DataFrame)-> Tuple[pd.DataFrame, pd.DataFrame]:
+    def _prepare_data_product_demand (self, df:pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
         Get the product and demand data
 
@@ -83,13 +86,14 @@ class DataProcessor:
             .sum()
         )
 
-        # Check which market is rising a certain product
+        # Aggregate benchmark metrics by product x origin x destination x month
         df_route = (
             df
             .groupby(['product', 'origin_city', 'destination_city', 'date'], as_index=False)[bench_cols]
             .sum()
         )
 
+        # Aggregate the total weight per O&D month
         df_route['total_weight'] = (
             df_route
             .groupby(['origin_city', 'destination_city', 'date'])['benchmark_actual_weight']
@@ -104,7 +108,9 @@ class DataProcessor:
 
     def _build_feature_revenue(self, df_route: pd.DataFrame) -> pd.DataFrame:
         """
-        Building features
+        Computes how much revenue each product earned as a share of total route revenue that month
+
+        :return: Dataframe with share_revenue added
         """
         self.logger.info('\t[>] Building features: actual weight')
 
@@ -123,24 +129,27 @@ class DataProcessor:
 
     def _build_feature_seasonality(self, df_route: pd.DataFrame) -> pd.DataFrame:
         """
-        Building features
+        Building seasonality features of Month, Quater, and rolling averages
+
+        :return: DataFrame with added columns: month, quarter, ma3_share_wt, ma3_share_rev, ma3_revenue
         """
         self.logger.info('\t[>] Building features: seasonality')
 
         df = df_route.copy()
 
-        df['month']   = df['date'].dt.month
+        df['date'] = df['date'].dt.to_timestamp()
+
+        df['month'] = df['date'].dt.month
         df['quarter'] = df['date'].dt.quarter
 
-        # a simple numeric index for time (e.g. Jan 2024 → 1, Feb 2024 → 2, …)
-        df['t'] = (
-            (df['date'].dt.year - df['date'].dt.year.min()) * 12
-            + df['date'].dt.month
-        )
+        # a simple numeric index for time (e.g. Jan 2024 → 1, Feb 2024 → 2, … Jan 2025 → 13)
+        years = df['date'].dt.year
+        df['t'] = (years - years.min()) * 12 + df['month']
 
-        # 3-month rolling averages (optional)
+        # 3-month rolling averages to capture recent trends and smooth volatility
         group_cols = ['product', 'origin_city', 'destination_city']
-        df['ma3_share_wt'] = df.groupby(group_cols)['share_actual'].transform(
+        df = df.sort_values(group_cols + ['date'])
+        df['ma3_share_wt'] = df.groupby(group_cols)['weight_share'].transform(
             lambda x: x.rolling(3, min_periods=1).mean())
         df['ma3_share_rev'] = df.groupby(group_cols)['share_revenue'].transform(
             lambda x: x.rolling(3, min_periods=1).mean())
@@ -153,19 +162,19 @@ class DataProcessor:
         """
         for each row representing a given (product, origin_city, destination_city, date),
         we pull in four numbers from the previous month on that same series.
-            - Without lag features, the model only sees static attributes (route, product, month)
-              and can’t learn patterns like “this product usually jumps after a big prior-month volume.”
+            - Give model access to the immediate past — good for forecasting and detecting short-term momentum
 
         """
         self.logger.info('\t[>] Building features: Apply the data of previous month')
 
         df = df_route.copy()
 
+        # for each product of O&D, see the difference of the current value from the past 1 month
         group_cols = ['product', 'origin_city', 'destination_city']
         df['lag1_actual_wt'] = df.groupby(group_cols)['benchmark_actual_weight'].shift(1)
         df['lag1_chargeable_wt'] = df.groupby(group_cols)['benchmark_chargeable_weight'].shift(1)
         df['lag1_revenue'] = df.groupby(group_cols)['benchmark_revenue'].shift(1)
-        df['lag1_share'] = df.groupby(group_cols)['share_actual'].shift(1)
+        df['lag1_share'] = df.groupby(group_cols)['weight_share'].shift(1)
         df = df.fillna(0)
 
         return df
@@ -174,40 +183,58 @@ class DataProcessor:
         """
         This function is used to get a product trend and only used for a visualization with historic data.
 
-        :param df:
-        :return:
+        This identifies whether a product is showing 'growth', 'not_present', 'decline', 'stable', 'new',
+        or 'disappeared' behavior, by comparing the current month's share to the average of past 3 active (non-zero)
+        months.
+
+        :param df: DataFrame containing weight_share per product × O&D × date
+        :return: DataFrame with added columns: weight_share_ma3, trend, active_count_ma3
         """
         df = df.sort_values(['origin_city', 'destination_city', 'product', 'date'])
 
-        df['weight_share_lag1'] = df.groupby(['origin_city', 'destination_city', 'product'])['weight_share'].shift(
-            1)
+        # Exclude past months with 0 weight share when computing the rolling average (=.shift(1)),
+        # and take the rolling average of 3 periods (previous 3 active months)
+        df['weight_share_ma3'] = (
+            df.groupby(['origin_city', 'destination_city', 'product'])['weight_share']
+            .transform(lambda x: x.shift(1).where(x.shift(1) > 0).rolling(3, min_periods=1).mean())
+        )
 
-        df['trend'] = df.apply(
-            lambda row: self._classify_trend(row['weight_share'], row['weight_share_lag1']), axis=1
+        df['product_trend'] = df.apply(
+            lambda row: self._classify_trend(row['weight_share'], row['weight_share_ma3']), axis=1
+        )
+
+        # how often a product was active in the past
+        df['active_count_ma3'] = (
+            df.groupby(['origin_city', 'destination_city', 'product'])['weight_share']
+            .transform(lambda x: x.shift(1).gt(0).rolling(3).sum())
         )
 
         return df
 
-    @staticmethod
-    def _classify_trend(current, previous):
+    def _classify_trend(self, current, past_avg):
         """
-        Classify the trend from historic data.
+        Classify trend comparing current weight_share to 3-month average.
+        Threshold defines tolerance for 'stable'.
 
-        :param current:
-        :param previous:
-        :return:
+        :param current: Current month's weight share
+        :param past_avg: 3-month rolling average of weight share
+        :return: trend label
         """
+        if pd.isna(past_avg):
+            return 'new' if current > 0 else 'not_present'
 
-        if pd.isna(previous) and current > 0:
-            return 'new'
-        elif current == 0 and previous > 0:
+        elif current == 0 and past_avg > 0:
             return 'disappeared'
-        elif current > previous:
-            return 'growth'
-        elif current < previous:
-            return 'decline'
-        else:
+
+        elif abs(current - past_avg) <= self.trend_threshold:
             return 'stable'
+
+        elif current > past_avg:
+            return 'growth'
+
+        elif current < past_avg:
+            return 'decline'
+
 
 
 
