@@ -14,5 +14,5 @@ project_input: "data/input/"
 # Input Data Files
 WACD_Local: 'AF_KL_MP_20240101-20250101_product.csv'
 
-
-
+# Parameters
+trend_threshold: 0.02

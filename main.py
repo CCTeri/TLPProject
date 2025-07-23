@@ -30,7 +30,6 @@ def run_project():
     gcs_input = settings.get('gcs_input_path', 'Input/market_20240101-20250101_product.csv')
 
     # Read data
-    logger.info(f'Reading data from gs://{bucket}/{gcs_input}')
     df_wacd = Reader(settings, logger).read_data(bucket, gcs_input)
 
     # Process data
