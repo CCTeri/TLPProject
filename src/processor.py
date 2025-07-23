@@ -29,6 +29,7 @@ class DataProcessor:
         df_feature = self._build_feature_revenue(df_route)
         df_feature = self._build_feature_seasonality(df_feature)
         df_feature = self._build_feature_last_month(df_feature)
+        df_feature = self._build_feature_ratios(df_feature)
         df_feature = self._add_product_trends(df_feature)
 
         return df_feature
@@ -179,6 +180,41 @@ class DataProcessor:
 
         return df
 
+    def _build_feature_ratios(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Create ratio and interaction features:
+            - share_x_revenue: interaction of weight share and revenue
+            - revenue_per_kg: yield per actual weight (kg)
+            - revenue_per_chargeable_kg: yield per billed weight (kg)
+            - chargeability_ratio: volumetric efficiency of the cargo
+
+        """
+        self.logger.info('\t[>] Building features: ratio and interaction metrics')
+
+        df = df.copy()
+
+        # Revenue weighted by product share in the route
+        # A product might have high share but low value (or vice versa)
+        # This reflects both popularity and profitability.
+        df['weighted_revenue'] = df['weight_share'] * df['benchmark_revenue']
+
+        # Revenue earned per kg of actual flown weight
+        # Replace 0 with NaN to avoid divide-by-zero, then fill resulting NaNs with 0
+        df['revenue_per_kg'] = df['benchmark_revenue'] / df['benchmark_actual_weight'].replace(0, np.nan)
+        df['revenue_per_kg'] = df['revenue_per_kg'].fillna(0)
+
+        # Revenue earned per kg of chargeable (billed) weight
+        # what the customer paid, not just what physically shipped (pricing-sensitive markets)
+        df['revenue_per_chargeable_kg'] = df['benchmark_revenue'] / df['benchmark_chargeable_weight'].replace(0, np.nan)
+        df['revenue_per_chargeable_kg'] = df['revenue_per_chargeable_kg'].fillna(0)
+
+        # how “volumetric” a product is. A higher ratio means it's charged more than it weighs.
+        # For space-consuming items that are not dense
+        df['chargeability_ratio'] = df['benchmark_chargeable_weight'] / df['benchmark_actual_weight'].replace(0, np.nan)
+        df['chargeability_ratio'] = df['chargeability_ratio'].fillna(0)
+
+        return df
+
     def _add_product_trends(self, df):
         """
         This function is used to get a product trend and only used for a visualization with historic data.
@@ -190,6 +226,8 @@ class DataProcessor:
         :param df: DataFrame containing weight_share per product × O&D × date
         :return: DataFrame with added columns: weight_share_ma3, trend, active_count_ma3
         """
+        self.logger.info('\t[>] Adding product trends')
+
         df = df.sort_values(['origin_city', 'destination_city', 'product', 'date'])
 
         # Exclude past months with 0 weight share when computing the rolling average (=.shift(1)),
