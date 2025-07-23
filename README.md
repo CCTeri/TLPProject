@@ -5,11 +5,12 @@ computes how each cargo “product” (General, Perishables, Pharma, DGR, etc.) 
 *In short, this tool is to provide the product type shares per O&D.*
 
 This works in:
-- Ingests your monthly O→D shipment data
+- Ingests monthly O→D shipment data
 - Aggregates by product and route to calculate each product’s weight share
 - Builds time-series features (lags, rolling averages, seasonality flags)
 - Trains a single global regression model to forecast next-month shares
 - Outputs, per route, the product most likely to lead and its projected percentage of that market
+- Side feature: product stability indicator
 
 By surfacing which products dominate which corridors and where demand is shifting, it supports pricing, capacity planning, performance monitoring and risk management in a single, end-to-end pipeline.
 
