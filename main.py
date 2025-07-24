@@ -6,6 +6,7 @@ from src.reader import Reader
 from src.writer import Writer
 from src.processor import DataProcessor
 from src.feature import FeatureEngineer
+from src.scaler import SimpleScaler, DomainSpecificScaler
 from src.modeler import Modeler
 
 def run_project():
@@ -43,11 +44,24 @@ def run_project():
     logger.info('Engineering features')
     df_features = FeatureEngineer(settings, logger).build_features(df_route)
 
+    # Scale the data
+    logger.info('Scaling features')
+    scaler_type = settings.get('scaling_method', 'simple')
+    if scaler_type == 'domain':
+        scaler = DomainSpecificScaler(logger)
+        logger.info('Using domain-specific scaling')
+    else:
+        scaler = SimpleScaler(logger)
+        logger.info('Using simple uniform scaling')
+
+    # Apply scaling to the features
+    df_scaled = scaler.fit_transform(df_features)
+
     # Train the model on historical route×product data
     modeler = Modeler(settings, logger)
 
     # TODO: seperate main file for train and predict. then predict only goes to GCS
-    modeler.train(df_features)
+    modeler.train(df_scaled)
 
     # Forecast for Feb 2025 (Out of sample)
     top_feb25 = modeler.predict_future(df_route, date='2025-02')
