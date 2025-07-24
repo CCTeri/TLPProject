@@ -5,6 +5,7 @@ from src.logger import init_logger
 from src.reader import Reader
 from src.writer import Writer
 from src.processor import DataProcessor
+from src.feature import FeatureEngineer
 from src.modeler import Modeler
 
 def run_project():
@@ -13,8 +14,10 @@ def run_project():
       1. Load settings
       2. Initialize logger
       3. Read data (GCS or local)
-      4. Process data
-      5. Write output
+      4. Process data with feature engineering
+      5. Train model
+      6. Generate predictions
+      7. Write output
     """
     # Load settings file
     settings_path = os.getenv('SETTINGS_PATH', 'settings.yml')
@@ -23,7 +26,7 @@ def run_project():
 
     # Initialize logger
     logger = init_logger(settings)
-    logger.info('Starting TLP Project: Niche Market Research for Cargo')
+    logger.info('Starting TLP Project: Product Demand Prediction for Cargo')
 
     # Data source configuration
     bucket = settings.get('gcs_bucket', 'tlp_project_demo')
@@ -32,15 +35,19 @@ def run_project():
     # Read data
     df_wacd = Reader(settings, logger).read_data(bucket, gcs_input)
 
-    # Process data
+    # Process data - returns both product and route data
     logger.info('Processing data')
     df_route = DataProcessor(settings, logger).process_data(df_wacd)
+
+    # Engineer features for route data (this is what goes to the model)
+    logger.info('Engineering features')
+    df_features = FeatureEngineer(settings, logger).build_features(df_route)
 
     # Train the model on historical route×product data
     modeler = Modeler(settings, logger)
 
     # TODO: seperate main file for train and predict. then predict only goes to GCS
-    modeler.train(df_route)
+    modeler.train(df_features)
 
     # Forecast for Feb 2025 (Out of sample)
     top_feb25 = modeler.predict_future(df_route, date='2025-02')

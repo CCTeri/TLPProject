@@ -45,9 +45,10 @@ class Modeler:
         Build features from df_route, then fit LightGBM on share_actual.
         Test set is Jan 2025, and check the accuracy.
         """
+        feature_engineer = FeatureEngineer(self.settings, self.logger)
+        selected_features = feature_engineer.get_modeling_features()
+        FEATURES = [f for f in selected_features if f in df_route.columns]
         TARGET = 'weight_share'
-        FEATURES = [col for col in df_route.columns
-                    if col not in {TARGET, 'date', 'product', 'origin_city', 'destination_city', 'product_trend'}]
         LAST = df_route['date'].max()
 
         # Split the data based on time
@@ -73,6 +74,9 @@ class Modeler:
         preds = self.model.predict(X_val)
         rmse = mean_squared_error(y_val, preds, squared=False)
         self.logger.info(f"[Modeler] Validation RMSE: {rmse:.4f}")
+
+        # Store features for prediction
+        self.features = FEATURES
 
     def predict_future(self, df_route: pd.DataFrame, date: Union[str,pd.Timestamp]) -> pd.DataFrame:
         """
@@ -100,8 +104,7 @@ class Modeler:
 
         # 6) Define the exact same feature list used in training
         TARGET = 'weight_share'
-        FEATURES = [col for col in df_route.columns
-                    if col not in {TARGET, 'date', 'product', 'origin_city', 'destination_city', 'product_trend'}]
+        FEATURES = self.features # Use the stored features from training
 
         # 7) Run the model
         df_fut['pred_share'] = self.model.predict(df_fut[FEATURES])

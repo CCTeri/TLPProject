@@ -1,261 +1,392 @@
-from typing import Tuple
 import pandas as pd
-import numpy as np
+import logging
 
 
-def _build_feature_market_competition(self, df: pd.DataFrame) -> pd.DataFrame:
+class FeatureEngineer:
     """
-    Create market competition and concentration features.
-
-    These features help the model understand competitive dynamics:
-    - How concentrated is the market? (few dominant products vs many competing)
-    - Is this product a market leader or follower?
-    - How stable is the competitive landscape?
-
-    Returns features:
-    - market_concentration: Herfindahl index (0=very competitive, 1=monopoly)
-    - product_rank: This product's rank by weight share on this route
-    - top3_concentration: Combined share of top 3 products
-    - is_market_leader: Boolean if this product has highest share
+    Handles all feature engineering operations for the TLP Project.
     """
-    self.logger.info('\t[>] Building features: market competition metrics')
 
-    df_comp = df.copy()
+    def __init__(self, settings: dict, logger: logging.Logger):
+        """
+        Initialize the Feature Engineer with settings and logger.
 
-    # Calculate market concentration using Herfindahl-Hirschman Index
-    # Sum of squared market shares - higher = more concentrated market
-    df_comp['market_concentration'] = (
-        df_comp.groupby(['origin_city', 'destination_city', 'date'])['weight_share']
-        .transform(lambda x: (x ** 2).sum())
-    )
+        Args:
+            settings: Configuration dictionary
+            logger: Logger instance for tracking operations
+        """
+        self.settings = settings
+        self.logger = logger
+        self.trend_threshold = settings.get('trend_threshold', 0.02)
 
-    # Rank products by weight share within each route-month
-    df_comp['product_rank'] = (
-        df_comp.groupby(['origin_city', 'destination_city', 'date'])['weight_share']
-        .rank(method='dense', ascending=False)
-    )
+    def build_features(self, df_route: pd.DataFrame) -> pd.DataFrame:
+        """
+        Main method to create all features.
 
-    # Calculate combined share of top 3 products (market concentration indicator)
-    top3_shares = (
-        df_comp.groupby(['origin_city', 'destination_city', 'date'])['weight_share']
-        .transform(lambda x: x.nlargest(3).sum())
-    )
-    df_comp['top3_concentration'] = top3_shares
+        Args:
+            df_route: DataFrame with basic route data
 
-    # Flag if this product is the market leader
-    df_comp['is_market_leader'] = (df_comp['product_rank'] == 1).astype(int)
+        Returns:
+            DataFrame with all features added
+        """
+        self.logger.info('[>] Starting feature creation pipeline')
 
-    return df_comp
+        # Basic features
+        df_feature = self._add_revenue_share_features(df_route)
+        df_feature = self._add_seasonality_features(df_feature)
+        df_feature = self._add_lagged_features(df_feature)
+        df_feature = self._add_feature_ratios(df_feature)
 
+        # Calculated features
+        df_feature = self._build_feature_market_competition(df_feature)
+        df_feature = self._build_feature_route_characteristics(df_feature)
+        df_feature = self._build_feature_cross_route_patterns(df_feature)
 
-def _build_feature_volatility(self, df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Create volatility and stability features.
+        return df_feature
 
-    Volatility features help predict which products have stable vs unpredictable demand:
-    - Historical variance in market share
-    - Coefficient of variation
-    - Streak of growth/decline periods
+    def get_modeling_features(self):
+        """
+        Returns the list of features for demand forecasting.
+        Call this method in Modeler to get the feature list.
 
-    Returns features:
-    - share_volatility: 6-month rolling standard deviation of weight share
-    - share_cv: Coefficient of variation (volatility relative to mean)
-    - consecutive_growth: Number of consecutive months of share growth
-    - consecutive_decline: Number of consecutive months of share decline
-    """
-    self.logger.info('\t[>] Building features: volatility and stability metrics')
+        Returns:
+            list: Feature names for modeling
+        """
+        features = [
+            # Previous performance
+            'lag1_share',  # Last month's market share
+            'ma3_share_wt',  # 3-month moving average
 
-    df_vol = df.copy()
+            # Seasonality
+            'month',  # Monthly patterns (1-12)
+            'quarter',  # Quarterly patterns (1-4)
+            't',  # Time trend
 
-    # Sort for proper time series operations
-    df_vol = df_vol.sort_values(['product', 'origin_city', 'destination_city', 'date'])
+            # Route characteristics
+            'route_total_volume',  # Market size
+            'route_diversity',  # Number of competing products
+            'route_growth_trend',  # Route momentum
 
-    group_cols = ['product', 'origin_city', 'destination_city']
+            # Competition
+            'market_concentration',  # How concentrated is the market?
+            'product_rank',  # Current ranking
+            'is_market_leader',  # Leader flag
+            'top3_concentration',  # Top 3 combined share
 
-    # 6-month rolling volatility of market share
-    df_vol['share_volatility'] = (
-        df_vol.groupby(group_cols)['weight_share']
-        .transform(lambda x: x.rolling(6, min_periods=2).std())
-    )
+            # Cross-route patterns
+            'origin_product_strength',  # Product strength from origin
+            'destination_product_strength',  # Product strength to destination
+            'product_avg_share',  # Overall product performance
 
-    # Coefficient of variation (volatility relative to mean level)
-    rolling_mean = df_vol.groupby(group_cols)['weight_share'].transform(
-        lambda x: x.rolling(6, min_periods=2).mean()
-    )
-    df_vol['share_cv'] = df_vol['share_volatility'] / (
-                rolling_mean + 0.001)  # Add small constant to avoid division by zero
+        ]
 
-    # Calculate consecutive growth/decline streaks
-    # First, determine if share increased or decreased vs previous month
-    df_vol['share_change'] = df_vol.groupby(group_cols)['weight_share'].diff()
-    df_vol['is_growing'] = (df_vol['share_change'] > 0).astype(int)
-    df_vol['is_declining'] = (df_vol['share_change'] < 0).astype(int)
+        self.logger.info(f"Selected {len(features)} features for demand forecasting")
+        return features
 
-    # Count consecutive periods
-    df_vol['consecutive_growth'] = df_vol.groupby(group_cols)['is_growing'].transform(
-        lambda x: x * (x.groupby((x != x.shift()).cumsum()).cumcount() + 1)
-    )
-    df_vol['consecutive_decline'] = df_vol.groupby(group_cols)['is_declining'].transform(
-        lambda x: x * (x.groupby((x != x.shift()).cumsum()).cumcount() + 1)
-    )
+    def _add_revenue_share_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Calculate revenue-based market share features.
 
-    # Clean up temporary columns
-    df_vol = df_vol.drop(['share_change', 'is_growing', 'is_declining'], axis=1)
-    df_vol = df_vol.fillna(0)
+        While weight share shows volume distribution, revenue share reveals
+        value distribution across products on each route. This provides insight
+        into premium vs. commodity product positioning.
 
-    return df_vol
+        Args:
+            df (pd.DataFrame): Route-level aggregated data
 
+        Returns:
+            pd.DataFrame: Enhanced dataset with revenue share features
+        """
+        self.logger.info('\t[>] Computing revenue share features')
 
-def _build_feature_route_characteristics(self, df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Create route-level characteristics that affect product demand.
+        # Get the total actual and revenue weight on OD per month
+        df['total_revenue'] = df.groupby(
+            ['origin_city', 'destination_city', 'date']
+        )['benchmark_revenue'].transform('sum')
 
-    Different routes have different characteristics that favor certain products:
-    - Route maturity (how long has it been active?)
-    - Route size (total volume)
-    - Route diversity (how many products compete?)
-    - Route growth trend
+        # Calculate each product's share of total route revenue
+        df['share_revenue'] = df['benchmark_revenue'] / df['total_revenue']
+        df['share_revenue'] = df['share_revenue'].fillna(0)
 
-    Returns features:
-    - route_total_volume: Total weight across all products on this route
-    - route_diversity: Number of active products on this route
-    - route_maturity: Number of months this route has been active
-    - route_growth_trend: 6-month trend in total route volume
-    """
-    self.logger.info('\t[>] Building features: route characteristics')
+        return df
 
-    df_route = df.copy()
+    def _add_seasonality_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Build time-based seasonality and trend features.
 
-    # Total route volume per month
-    df_route['route_total_volume'] = (
-        df_route.groupby(['origin_city', 'destination_city', 'date'])['benchmark_actual_weight']
-        .transform('sum')
-    )
+        This method adds multiple temporal features to capture seasonal patterns:
+        - Month and quarter indicators for seasonal effects
+        - Time index for linear trends
+        - Rolling averages to smooth short-term volatility
 
-    # Route diversity - number of products with >1% market share
-    df_route['route_diversity'] = (
-        df_route.groupby(['origin_city', 'destination_city', 'date'])['weight_share']
-        .transform(lambda x: (x > 0.01).sum())
-    )
+        Args:
+            df (pd.DataFrame): Route data with basic features
 
-    # Route maturity - how many months has this route been active?
-    df_route['route_maturity'] = (
-        df_route.groupby(['origin_city', 'destination_city'])['date']
-        .transform(lambda x: (x.max() - x.min()).days / 30)  # Convert to months
-    )
+        Returns:
+            pd.DataFrame: Dataset enhanced with seasonality features
+        """
+        self.logger.info('\t[>] Adding seasonality and rolling average features')
 
-    # Route growth trend - 6-month rolling growth rate of total volume
-    df_route = df_route.sort_values(['origin_city', 'destination_city', 'date'])
-    df_route['route_growth_trend'] = (
-        df_route.groupby(['origin_city', 'destination_city'])['route_total_volume']
-        .transform(lambda x: x.pct_change(periods=6))
-    )
+        # Convert period back to timestamp for date operations
+        df['date'] = df['date'].dt.to_timestamp()
+        date_dt = df['date'].dt
 
-    df_route = df_route.fillna(0)
+        df['month'] = date_dt.month
+        df['quarter'] = date_dt.quarter
 
-    return df_route
+        # Create numeric time index for trend analysis
+        # This converts dates to a simple sequence: Jan 2024=1, Feb 2024=2, etc.
+        df['t'] = (date_dt.year - date_dt.year.min()) * 12 + df['month']
 
+        # Calculate 3-month rolling averages to capture recent trends
+        # These smooth out monthly volatility and highlight underlying patterns
+        group_cols = ['product', 'origin_city', 'destination_city']
+        df = df.sort_values(group_cols + ['date'])
+        grouped = df.groupby(group_cols)
 
-def _build_feature_cross_route_patterns(self, df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Create features based on patterns across multiple routes.
+        # Rolling averages with minimum 1 period to handle early months
+        def rolling_mean_3m(series):
+            return series.rolling(window=3, min_periods=1).mean()
 
-    These features help identify products that are strong in similar markets:
-    - How does this product perform on similar routes?
-    - Are there regional patterns?
-    - Cross-route momentum indicators
+        rolling_features = {
+            'ma3_share_wt': grouped['weight_share'].transform(rolling_mean_3m),
+            'ma3_share_rev': grouped['share_revenue'].transform(rolling_mean_3m),
+            'ma3_revenue': grouped['benchmark_revenue'].transform(rolling_mean_3m)
+        }
 
-    Returns features:
-    - product_avg_share: This product's average share across all routes
-    - origin_product_strength: Product's average share from this origin
-    - destination_product_strength: Product's average share to this destination
-    - similar_routes_performance: Average performance on routes with similar characteristics
-    """
-    self.logger.info('\t[>] Building features: cross-route patterns')
+        df = df.assign(**rolling_features)
 
-    df_cross = df.copy()
+        return df
 
-    # Product's overall average market share across all routes
-    df_cross['product_avg_share'] = (
-        df_cross.groupby(['product', 'date'])['weight_share']
-        .transform('mean')
-    )
+    def _add_lagged_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Add previous month's performance indicators as predictive features.
 
-    # Product strength by origin city (some products stronger from certain origins)
-    df_cross['origin_product_strength'] = (
-        df_cross.groupby(['product', 'origin_city', 'date'])['weight_share']
-        .transform('mean')
-    )
+        Lagged features capture momentum and recent performance trends,
+        which are often strong predictors of next month's market share.
+        These features help the model understand short-term dynamics.
 
-    # Product strength by destination city
-    df_cross['destination_product_strength'] = (
-        df_cross.groupby(['product', 'destination_city', 'date'])['weight_share']
-        .transform('mean')
-    )
+        Args:
+            df (pd.DataFrame): Dataset with seasonality features
 
-    # Performance on similar-sized routes (routes with similar total volume)
-    # First, create route size categories
-    df_cross['route_size_quartile'] = (
-        df_cross.groupby('date')['route_total_volume']
-        .transform(lambda x: pd.qcut(x, q=4, labels=[1, 2, 3, 4], duplicates='drop'))
-    )
+        Returns:
+            pd.DataFrame: Dataset with lagged performance indicators
+        """
+        self.logger.info('\t[>] Adding previous month performance indicators')
 
-    # Average performance on routes of similar size
-    df_cross['similar_routes_performance'] = (
-        df_cross.groupby(['product', 'route_size_quartile', 'date'])['weight_share']
-        .transform('mean')
-    )
+        # Define grouping for time series operations
+        grouping_columns = ['product', 'origin_city', 'destination_city']
 
-    # Fill any remaining NaN values
-    df_cross = df_cross.fillna(0)
+        # Create lagged features (previous month's values)
+        lag_features = {
+            'lag1_actual_wt': 'benchmark_actual_weight',
+            'lag1_chargeable_wt': 'benchmark_chargeable_weight',
+            'lag1_revenue': 'benchmark_revenue',
+            'lag1_share': 'weight_share'
+        }
 
-    return df_cross
+        for lag_col, source_col in lag_features.items():
+            df[lag_col] = df.groupby(grouping_columns)[source_col].shift(1)
 
+        # Fill NaN values (first month for each group) with 0
+        df = df.fillna(0)
 
-def _build_feature_momentum_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Create momentum and acceleration features.
+        return df
 
-    These features capture whether a product is gaining or losing momentum:
-    - Rate of change in market share
-    - Acceleration (change in the rate of change)
-    - Momentum relative to competitors
+    def _add_feature_ratios(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Create ratio and interaction features for cargo profitability analysis.:
+        - weighted_revenue: Market share weighted by revenue (popularity × profitability)
+        - revenue_per_kg: Yield per actual weight (premium vs commodity indicator)
+        - revenue_per_chargeable_kg: Yield per billed weight (pricing efficiency)
+        - chargeability_ratio: Volumetric efficiency (dense vs voluminous cargo)
 
-    Returns features:
-    - share_momentum_1m: 1-month change in weight share
-    - share_momentum_3m: 3-month change in weight share
-    - share_acceleration: Change in momentum (2nd derivative)
-    - relative_momentum: This product's momentum vs route average
-    """
-    self.logger.info('\t[>] Building features: momentum indicators')
+        Args:
+            df (pd.DataFrame): Dataset with weight_share, revenue, and weight columns
 
-    df_momentum = df.copy()
-    df_momentum = df_momentum.sort_values(['product', 'origin_city', 'destination_city', 'date'])
+        Returns:
+            pd.DataFrame: Enhanced dataset with ratio features for model training
+        """
+        self.logger.info('\t[>] Adding ratio and interaction metrics')
 
-    group_cols = ['product', 'origin_city', 'destination_city']
+        # Revenue weighted by product share in the route
+        # A product might have high share but low value (or vice versa)
+        # This reflects both popularity and profitability.
+        df['weighted_revenue'] = df['weight_share'] * df['benchmark_revenue']
 
-    # 1-month and 3-month momentum
-    df_momentum['share_momentum_1m'] = (
-        df_momentum.groupby(group_cols)['weight_share'].diff(periods=1)
-    )
-    df_momentum['share_momentum_3m'] = (
-        df_momentum.groupby(group_cols)['weight_share'].diff(periods=3)
-    )
+        # Revenue earned per kg of actual flown weight
+        # Create masks for non-zero weights to avoid division by zero
+        actual_weight_mask = df['benchmark_actual_weight'] > 0
+        chargeable_weight_mask = df['benchmark_chargeable_weight'] > 0
 
-    # Acceleration (change in momentum)
-    df_momentum['share_acceleration'] = (
-        df_momentum.groupby(group_cols)['share_momentum_1m'].diff(periods=1)
-    )
+        # Initialize yield columns with zeros
+        df['revenue_per_kg'] = 0.0
+        df['revenue_per_chargeable_kg'] = 0.0
+        df['chargeability_ratio'] = 0.0
 
-    # Route-level average momentum for comparison
-    route_avg_momentum = (
-        df_momentum.groupby(['origin_city', 'destination_city', 'date'])['share_momentum_1m']
-        .transform('mean')
-    )
+        # Calculate yields only where weights are positive (vectorized approach)
+        df.loc[actual_weight_mask, 'revenue_per_kg'] = (
+                df.loc[actual_weight_mask, 'benchmark_revenue'] /
+                df.loc[actual_weight_mask, 'benchmark_actual_weight']
+        )
 
-    # Relative momentum vs other products on same route
-    df_momentum['relative_momentum'] = df_momentum['share_momentum_1m'] - route_avg_momentum
+        # Revenue earned per kg of chargeable (billed) weight
+        # what the customer paid, not just what physically shipped (pricing-sensitive markets)
+        df.loc[chargeable_weight_mask, 'revenue_per_chargeable_kg'] = (
+                df.loc[chargeable_weight_mask, 'benchmark_revenue'] /
+                df.loc[chargeable_weight_mask, 'benchmark_chargeable_weight']
+        )
 
-    df_momentum = df_momentum.fillna(0)
+        # how “volumetric” a product is. A higher ratio means it's charged more than it weighs.
+        # For space-consuming items that are not dense
+        df.loc[actual_weight_mask, 'chargeability_ratio'] = (
+                df.loc[actual_weight_mask, 'benchmark_chargeable_weight'] /
+                df.loc[actual_weight_mask, 'benchmark_actual_weight']
+        )
 
-    return df_momentum
+        return df
+
+    def _build_feature_market_competition(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Create market competition and concentration features.
+
+        These features help the model understand competitive dynamics:
+        - Understand market context, not just product history.
+        - Learn that products in competitive markets behave differently than in monopolistic ones.
+        - Detect leader advantage (e.g., first-ranked products tend to retain share).
+
+        Returns features:
+        - market_concentration: Herfindahl index (0=very competitive, 1=monopoly)
+        - product_rank: This product's rank by weight share on this route
+        - top3_concentration: Combined share of top 3 products
+        - is_market_leader: Boolean if this product has the highest share
+        """
+        self.logger.info('\t[>] Adding market competition metrics')
+
+        # Calculate market concentration using Herfindahl-Hirschman Index (If many products have equal share, the HHI is low (e.g., 0.1–0.3).)
+        # Sum of squared market shares - higher = more concentrated market, less competition
+        df['market_concentration'] = (
+            df.groupby(['origin_city', 'destination_city', 'date'])['weight_share']
+            .transform(lambda x: (x ** 2).sum())
+        )
+
+        # Rank products by weight share within each route-month. "dense" = ties will get the same rank
+        df['product_rank'] = (
+            df.groupby(['origin_city', 'destination_city', 'date'])['weight_share']
+            .rank(method='dense', ascending=False)
+        )
+
+        # Calculate combined share of top 3 products (market concentration indicator) - High value = small number of players dominate the market.
+        top3_shares = (
+            df.groupby(['origin_city', 'destination_city', 'date'])['weight_share']
+            .transform(lambda x: x.nlargest(3).sum())
+        )
+        df['top3_concentration'] = top3_shares
+
+        # Flag if this product is the market leader (Binary feature for leadership status — models can learn different behavior for leaders.)
+        df['is_market_leader'] = (df['product_rank'] == 1).astype(int)
+
+        return df
+
+    def _build_feature_route_characteristics(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Create route-level characteristics that affect product demand.
+
+        Different routes have different characteristics that favor certain products:
+        - Route maturity (how long has it been active?)
+        - Route size (total volume)
+        - Route diversity (how many products compete?)
+        - Route growth trend
+
+        Returns features:
+        - route_total_volume: Total weight across all products on this route
+        - route_diversity: Number of active products on this route
+        - route_maturity: Number of months this route has been active
+        - route_growth_trend: 6-month trend in total route volume
+        """
+        self.logger.info('\t[>] Adding route characteristics')
+
+        df_route = df.sort_values(['origin_city', 'destination_city', 'date'])
+
+        # Define route grouping columns once
+        route_cols = ['origin_city', 'destination_city']
+        route_date_cols = route_cols + ['date']
+
+        # Total flown weight on the route in that month; larger routes might attract more stable or competitive product dynamics
+        route_totals = (
+            df_route.groupby(route_date_cols, sort=False)['benchmark_actual_weight']
+            .sum()
+            .rename('route_total_volume')
+        )
+        df_route = df_route.merge(route_totals, left_on=route_date_cols, right_index=True, how='left')
+
+        # Route diversity - number of products with >1% market share: For each route-month, counts how many products had more than 1% share.
+        df_route['route_diversity'] = (
+            df_route.groupby(route_date_cols, sort=False)['weight_share']
+            .transform(lambda x: (x > 0.01).sum())
+        )
+
+        # Route maturity - How long the route has been active?
+        route_maturity = (
+            df_route.groupby(route_cols, sort=False)['date']
+            .agg(lambda x: (x.max() - x.min()).days / 30)
+            .rename('route_maturity')
+        )
+        df_route = df_route.merge(route_maturity, left_on=route_cols, right_index=True, how='left')
+
+        # Route growth trend - For each route, calculates the 6-month percentage change in total volume
+        df_route['route_growth_trend'] = (
+            df_route.groupby(['origin_city', 'destination_city'])['route_total_volume']
+            .transform(lambda x: x.pct_change(periods=6))
+        )
+
+        # Fill NaN values with 0
+        feature_cols = ['route_total_volume', 'route_diversity', 'route_maturity', 'route_growth_trend']
+        df_route[feature_cols] = df_route[feature_cols].fillna(0)
+
+        return df_route
+
+    def _build_feature_cross_route_patterns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Add features that compare product performance across similar routes, cities, or market sizes.
+        These help the model detect global product behavior, not just route-specific trends.
+
+        These features help identify products that are strong in similar markets:
+        - How does this product perform on similar routes?
+        - Are there regional patterns?
+        - Cross-route momentum indicators
+
+        Returns features:
+        - product_avg_share: This product's average share across all routes
+        - similar_routes_performance: Average performance on routes with similar characteristics
+        """
+        self.logger.info('\t[>] Adding cross-route patterns')
+
+        # Product's overall average market share across all routes (Tells the model how strong the product is overall)
+        df['product_avg_share'] = (
+            df.groupby(['product', 'date'])['weight_share']
+            .transform('mean')
+        )
+
+        # Performance on similar-sized routes (routes with similar total volume)
+        # For this product, what is the average weight_share on routes of similar size (quartile), on this date?
+        # First, create route size categories
+        df['route_size_quartile'] = (
+            df.groupby('date')['route_total_volume']
+            .transform(lambda x: pd.qcut(x, q=4, labels=[1, 2, 3, 4], duplicates='drop'))
+        )
+
+        # Then, average performance on routes of similar size (The average share of this product across routes in the same volume quartile.)
+        df['similar_routes_performance'] = (
+            df.groupby(['product', 'route_size_quartile', 'date'], observed=True)['weight_share']
+            .transform('mean')
+        )
+
+        # Compare the product of the market with benchmark
+        df['share_vs_peers'] = df['weight_share'] - df['similar_routes_performance']
+
+        # Fill any remaining NaN values
+        feature_cols = ['product_avg_share', 'similar_routes_performance', 'share_vs_peers']
+        df[feature_cols] = df[feature_cols].fillna(0)
+
+        return df
