@@ -33,7 +33,7 @@ class DataProcessor:
         self.settings = settings
         self.logger = logger
         # Default to 2% threshold for trend stability if not specified in settings
-        self.trend_threshold = settings.get('trend_threshold', 0.02)  # fallback to 2% if not set
+        # self.trend_threshold = settings.get('trend_threshold', 0.02)  # fallback to 2% if not set
 
         pass
 
@@ -137,6 +137,8 @@ class DataProcessor:
             .transform('sum')
         )
 
+        df_route = df_route[df_route['total_weight'] > self.settings['market_size']]
+
         # Calculate each product's weight share of the total route volume
         # This is the target variable for prediction
         df_route['weight_share'] = df_route['benchmark_actual_weight'] / df_route['total_weight']
@@ -215,7 +217,7 @@ class DataProcessor:
         # Compare current performance to historical baseline
         share_difference = abs(current_share - historical_average)
 
-        if share_difference <= self.trend_threshold:
+        if share_difference <= self.settings['trend_threshold']:
             return 'stable'
         elif current_share > historical_average:
             return 'growth'

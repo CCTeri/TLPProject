@@ -6,12 +6,12 @@ from sklearn.preprocessing import MinMaxScaler, RobustScaler
 class SimpleScaler:
     """
     Simple uniform scaler that scales all numeric features to 0-100 range.
-    Best for: Quick prototyping, when features have similar distributions.
     """
 
-    def __init__(self, logger=None):
+    def __init__(self, settings: dict, logger=None):
         self.scaler = MinMaxScaler(feature_range=(0, 100))
         self.fitted = False
+        self.settings = settings
         self.feature_names = []
         self.logger = logger
 
@@ -80,9 +80,10 @@ class DomainSpecificScaler:
     Best for: Production models, when preserving business meaning matters.
     """
 
-    def __init__(self, logger=None):
+    def __init__(self, settings, logger=None):
         self.fitted = False
         self.logger = logger
+        self.settings = settings
 
         # Individual scalers for each domain
         self.revenue_scaler = MinMaxScaler(feature_range=(0, 100))

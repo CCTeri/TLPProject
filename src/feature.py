@@ -1,5 +1,6 @@
 import pandas as pd
 import logging
+import numpy as np
 
 
 class FeatureEngineer:
@@ -53,19 +54,34 @@ class FeatureEngineer:
             list: Feature names for modeling
         """
         features = [
+            # Product's revenue share
+            'total_revenue',  # Total review per product
+            'share_revenue',  # revenue share per product
+
             # Previous performance
             'lag1_share',  # Last month's market share
-            'ma3_share_wt',  # 3-month moving average
+            'lag1_actual_wt',  # Last month's weight share
+            'lag1_chargeable_wt',  # Last month's chargeable weight
+            'lag1_revenue',  # Last month's revenue
 
             # Seasonality
             'month',  # Monthly patterns (1-12)
             'quarter',  # Quarterly patterns (1-4)
-            't',  # Time trend
+            't',  # Linear time trend
+            'ma3_share_wt',  # 3-month moving average of weight share
+            'ma3_share_rev',  # 3-month moving average of revenue share
+            'ma3_revenue',  # 3-month moving average of revenue
+
+            # Ratio
+            'revenue_per_kg', # Premium vs commodity indicator (yield)
+            'revenue_per_chargeable_kg',  # Pricing-sensitive markets
+            'chargeability_ratio',  # Space efficiency
 
             # Route characteristics
             'route_total_volume',  # Market size
             'route_diversity',  # Number of competing products
-            'route_growth_trend',  # Route momentum
+            'route_growth_trend',  # 6-month percentage change in total volume
+            'route_maturity',  # Age in months
 
             # Competition
             'market_concentration',  # How concentrated is the market?
@@ -73,11 +89,10 @@ class FeatureEngineer:
             'is_market_leader',  # Leader flag
             'top3_concentration',  # Top 3 combined share
 
-            # Cross-route patterns
-            'origin_product_strength',  # Product strength from origin
-            'destination_product_strength',  # Product strength to destination
+            # Cross-route patterns (from _build_feature_cross_route_patterns)
             'product_avg_share',  # Overall product performance
-
+            'similar_routes_performance',  # Performance on similar routes
+            'share_vs_peers'  # Comparison to peer performance
         ]
 
         self.logger.info(f"Selected {len(features)} features for demand forecasting")
@@ -335,9 +350,10 @@ class FeatureEngineer:
         df_route = df_route.merge(route_maturity, left_on=route_cols, right_index=True, how='left')
 
         # Route growth trend - For each route, calculates the 6-month percentage change in total volume
+        # for ones that didn't have the product/volume, growth is zero since it's a new item and no growth trend
         df_route['route_growth_trend'] = (
             df_route.groupby(['origin_city', 'destination_city'])['route_total_volume']
-            .transform(lambda x: x.pct_change(periods=6))
+            .transform(lambda x: x.pct_change(periods=6).replace([np.inf, -np.inf], 0).fillna(0))
         )
 
         # Fill NaN values with 0
