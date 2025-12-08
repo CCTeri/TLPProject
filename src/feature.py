@@ -151,7 +151,7 @@ class FeatureEngineer:
 
         # Create numeric time index for trend analysis
         # This converts dates to a simple sequence: Jan 2024=1, Feb 2024=2, etc.
-        df['t'] = (date_dt.year - date_dt.year.min()) * 12 + df['month']
+        df['t'] = ((date_dt.year - date_dt.year.min()) * 12 + df['month']).astype('int32')
 
         # Calculate 3-month rolling averages to capture recent trends
         # These smooth out monthly volatility and highlight underlying patterns
@@ -160,18 +160,25 @@ class FeatureEngineer:
         grouped = df.groupby(group_cols)
 
         # Rolling averages with minimum 1 period to handle early months
-        def rolling_mean_3m(series):
-            return series.rolling(window=3, min_periods=1).mean()
+        value_cols = ['weight_share', 'share_revenue', 'benchmark_revenue']
 
-        rolling_features = {
-            'ma3_share_wt': grouped['weight_share'].transform(rolling_mean_3m),
-            'ma3_share_rev': grouped['share_revenue'].transform(rolling_mean_3m),
-            'ma3_revenue': grouped['benchmark_revenue'].transform(rolling_mean_3m)
-        }
+        rolled = (
+            grouped[group_cols + ['date'] + value_cols]
+            .set_index('date')
+            .groupby(group_cols)[value_cols]
+            .rolling(window=3, min_periods=1)
+            .mean()
+            .reset_index(level='date', drop=True)
+            .rename(columns={
+                'weight_share': 'ma3_share_wt',
+                'share_revenue': 'ma3_share_rev',
+                'benchmark_revenue': 'ma3_revenue',
+            })
+        )
 
-        df = df.assign(**rolling_features)
+        grouped[rolled.columns] = grouped
 
-        return df
+        return grouped
 
     def _add_lagged_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """

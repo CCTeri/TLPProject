@@ -5,9 +5,12 @@ log_level: "debug"
 project_name: "Product Popularity Model"
 project_version: "v2025.02"
 
+# Data Source Configuration
+data_source: "local"  # Options: "gcs" or "local"
+
 # Data Location
 project_input: "data/input/"
-WACD_Local: 'AF_KL_MP_20240101-20250101_product.csv'
+WACD_Local: 'market_20240101-20250101_product.csv'
 
 # Parameters
 trend_threshold: 0.02

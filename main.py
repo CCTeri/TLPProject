@@ -32,12 +32,17 @@ def run_project():
     logger.info('Starting TLP Project: Product Demand Prediction for Cargo')
 
     # Data source configuration
+    data_source = settings.get('data_source', 'gcs').lower()
     bucket = settings.get('gcs_bucket', 'tlp_project_demo')
     gcs_input = settings.get('gcs_input_path', 'Input/market_20240101-20250101_product.csv')
 
     # Read data
-    logger.info('Reading data')
-    df_wacd = Reader(settings, logger).read_data(bucket, gcs_input)
+    logger.info(f'Reading data from {data_source.upper()}')
+    reader = Reader(settings, logger)
+    if data_source == 'local':
+        df_wacd = reader.read_data()
+    else:
+        df_wacd = reader.read_data(bucket, gcs_input)
 
     # Process data
     logger.info('Processing data')
@@ -62,9 +67,9 @@ def run_project():
     model_comparer = MultiModelComparer(settings, logger)
     best_model = model_comparer.train_and_compare_models(df_scaled, scaler)
 
-    # Forecast using the best model (df_route for feature engineering, not df_scaled)
+    # Forecast using the best model
     logger.info('Generating predictions for target month')
-    feb_predictions = best_model.predict_future(df_features)
+    feb_predictions = best_model.predict(df_scaled)
 
     # Save output locally
     logger.info('Saving predictions locally')
