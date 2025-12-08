@@ -162,13 +162,13 @@ class FeatureEngineer:
         # Rolling averages with minimum 1 period to handle early months
         value_cols = ['weight_share', 'share_revenue', 'benchmark_revenue']
 
-        rolled = (
-            grouped[group_cols + ['date'] + value_cols]
-            .set_index('date')
+        roll_df = (
+            df[group_cols + ['date'] + value_cols]
+            .set_index('date')  # roll over the date index
             .groupby(group_cols)[value_cols]
             .rolling(window=3, min_periods=1)
             .mean()
-            .reset_index(level='date', drop=True)
+            .reset_index()  # brings back date + group cols as normal columns
             .rename(columns={
                 'weight_share': 'ma3_share_wt',
                 'share_revenue': 'ma3_share_rev',
@@ -176,9 +176,14 @@ class FeatureEngineer:
             })
         )
 
-        grouped[rolled.columns] = grouped
+        df = df.merge(
+            roll_df,
+            on=group_cols + ['date'],
+            how='left',
+            validate='one_to_one'  # will raise if duplicates exist for same key+date
+        )
 
-        return grouped
+        return df
 
     def _add_lagged_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """
