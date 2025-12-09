@@ -19,13 +19,7 @@ env:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-
-    # These steps are created as every job requires to run the code successfully.
-    # Ex. Add tasks outside of main.py so we can execute the code such as installing the packages.
-    # then no need to add tasks like 'read data' since it is a part of main.py
-    # Other possible tasks can be testing, deployment, quality control etc.
-    # If added more python files like read.py write.py that are run in main.py, we don't need to add these files in the steps.
-
+    
     steps:
       # ─── CI STEPS ─────────────────────────────────────────
       - name: Checkout code # CI: get the latest code
@@ -48,14 +42,6 @@ jobs:
 
       - name: Set up gcloud CLI # CI: for gcloud commands
         uses: google-github-actions/setup-gcloud@v1
-
-#      # Produce the output in GCS when the github action is running
-       # however, it is not a best practice to store a new data in CI pipeline. It also costs more for API and Storage.
-       # CI is for deploying code, not producing data. Data pipeline is usually running on schedules against evolving data
-       # need their own monitoring and failture handling.
-#      - name: Run data pipeline # CI: run main.py → process data & upload to GCS
-#        run: |
-#          python main.py
 
       # ─── CD STEPS ─────────────────────────────────────────
       - name: Configure Docker to use Artifact Registry  # CD: prepare Docker push
