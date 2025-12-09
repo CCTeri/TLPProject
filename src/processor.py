@@ -1,4 +1,3 @@
-from typing import Tuple
 import pandas as pd
 import numpy as np
 
@@ -6,7 +5,7 @@ class DataProcessor:
     """
     Comprehensive data processor for cargo market analysis.
 
-    This class handles the complete data processing pipeline from raw WACD market data
+    This class handles the complete data processing pipeline from raw market data
     to model-ready features for predicting product market share across origin-destination routes.
 
     The processing pipeline includes:
@@ -32,10 +31,6 @@ class DataProcessor:
         """
         self.settings = settings
         self.logger = logger
-        # Default to 2% threshold for trend stability if not specified in settings
-        # self.trend_threshold = settings.get('trend_threshold', 0.02)  # fallback to 2% if not set
-
-        pass
 
     def process_data(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -47,7 +42,7 @@ class DataProcessor:
         - Feature engineering for model training
 
         Args:
-            df (pd.DataFrame): Raw WACD market data with columns for product, origin/destination cities,
+            df (pd.DataFrame): Raw market data with columns for product, origin/destination cities,
                              dates, and benchmark metrics (weight, revenue)
 
         Returns:
@@ -74,7 +69,7 @@ class DataProcessor:
         - Filters out invalid city codes (non-3-letter codes)
 
         Args:
-            df (pd.DataFrame): Raw WACD data
+            df (pd.DataFrame): Raw market data
 
         Returns:
             pd.DataFrame: Cleaned dataset with valid monthly records only
@@ -101,7 +96,7 @@ class DataProcessor:
 
         return df
 
-    def _aggregate_market_data (self, df:pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    def _aggregate_market_data(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Aggregate market data by route to calculate market shares.
 
@@ -109,10 +104,10 @@ class DataProcessor:
         percentage of each route's total volume each product represents.
 
         Args:
-            df (pd.DataFrame): Cleaned market data
+            df: Cleaned market data
 
         Returns:
-            pd.DataFrame: Route-level data with market share calculations
+            Route-level data with market share calculations
         """
         self.logger.info(f'\t[>] Aggregating market data by product and route')
 
@@ -142,13 +137,13 @@ class DataProcessor:
         # Calculate each product's weight share of the total route volume
         # This is the target variable for prediction
         df_route['weight_share'] = df_route['benchmark_actual_weight'] / df_route['total_weight']
-        df_route['weight_share'] = df_route['weight_share'] .fillna(0)
+        df_route['weight_share'] = df_route['weight_share'].fillna(0)
 
         return df_route
 
     def _classify_product_trends(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Classify product trends for Spotfire dashabord business insight and visualization.
+        Classify product trends for Spotfire dashboard business insight and visualization.
 
         This method identifies whether each product is experiencing growth, decline,
         stability, or market entry/exit patterns. The classification compares current
@@ -223,7 +218,3 @@ class DataProcessor:
             return 'growth'
         else:  # current_share < historical_average
             return 'decline'
-
-
-
-

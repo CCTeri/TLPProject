@@ -1,16 +1,21 @@
 import pandas as pd
 import numpy as np
 import lightgbm as lgb
+import shap
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LinearRegression
-from typing import Dict, List, Tuple, Union, Any
+from typing import Dict, List, Optional
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from datetime import datetime
+
+# Constants
+SHAP_SAMPLE_SIZE = 2000
+SHAP_RANDOM_STATE = 42
 
 
 class MultiModelComparer:
     """
-    Multi-model comparison system for TLP Project.
+    Multi-model comparison system for the product market share model.
 
     Compares 3 ML models using temporal validation:
     - Training: Jan 2024 - Nov 2024
@@ -44,8 +49,10 @@ class MultiModelComparer:
 
     def prepare_temporal_splits(self, df_scaled: pd.DataFrame) -> Dict[str, pd.DataFrame]:
         """
-        Create temporal data splits for model comparison: Train, validate, test dataset
+        Construct time-ordered train, validation, and test partitions.
 
+        Args:
+            df_scaled: Scaled DataFrame including features and target.
         """
         self.logger.info("[MultiModel] Preparing temporal data splits...")
 
@@ -75,7 +82,11 @@ class MultiModelComparer:
 
     def get_model_features(self, df: pd.DataFrame) -> List[str]:
         """
-        Get and validate features for modeling.
+        Retrieve the full feature set defined in FeatureEngineer and
+        validate it against the actual columns in the modeling dataset.
+
+        Args:
+            df: DataFrame containing the modeling data.
         """
         # Bring the feature choices from the feature class
         from src.feature import FeatureEngineer
@@ -84,7 +95,6 @@ class MultiModelComparer:
 
         # Validate features exist in data
         available_features = [f for f in selected_features if f in df.columns]
-        # TODO: DO we need this mising feature part?
         missing_features = [f for f in selected_features if f not in df.columns]
 
         if missing_features:
@@ -96,7 +106,7 @@ class MultiModelComparer:
 
     def train_and_compare_models(self, df_scaled: pd.DataFrame, scaler, target: str = 'weight_share'):
         """
-        Trains and compares multiple machine learning models.
+        Train multiple model candidates and compare their performance.
 
         This method prepares the input data, trains three predefined models
         (LightGBM, Random Forest, and Linear Regression), evaluates their performance,
@@ -173,18 +183,52 @@ class MultiModelComparer:
                 'feature_importance': self._get_feature_importance(model, features)
             }
 
-            self.logger.info(f"[{config['name']}]Training completed")
+            self.logger.info(f"[{config['name']}] Training completed")
 
         # Select best model and log results
         self._select_best_model()
         self._log_model_comparison()
+
+        # SHAP importance for the best model (on validation split)
+        val_split = self.data_splits.get("validation")
+
+        if val_split is not None and not val_split.empty:
+            X_val_shap = val_split[self.features].fillna(0)
+            X_sample = X_val_shap.sample(min(SHAP_SAMPLE_SIZE, len(X_val_shap)), random_state=SHAP_RANDOM_STATE)
+
+            try:
+                shap_importance = self._get_feature_importance(
+                    self.best_model,
+                    self.features,
+                    X_sample=X_sample,  # <- triggers SHAP mode
+                )
+
+                # overwrite default importance with SHAP for the best model
+                self.model_results[self.best_model_name]["feature_importance"] = shap_importance
+                self.model_results[self.best_model_name]["shap_importance"] = shap_importance
+
+                self.logger.info("SHAP importance computed for the best model.")
+                self.logger.info(f"Top SHAP features:\n{shap_importance.head()}")
+            except Exception as e:
+                self.logger.warning(f"Could not compute SHAP importance: {e}")
+        else:
+            self.logger.info("No validation split available for SHAP computation.")
 
         return self
 
     def _evaluate_model(self, model, model_key: str, splits: Dict[str, pd.DataFrame],
                         features: List[str], target: str) -> Dict[str, Dict[str, float]]:
         """
-        Evaluate model on all data splits.
+        Compute performance statistics of a model on a specific data split.
+
+        Produces:
+            - RMSE
+            - MAE
+            - R²
+            - MAPE (with safeguards against zero division)
+            - sample size
+
+        Metrics are stored and surfaced for reporting and comparison.
         """
         metrics = {}
 
@@ -206,36 +250,54 @@ class MultiModelComparer:
 
         return metrics
 
-    def _get_feature_importance(self, model, features: List[str]) -> pd.DataFrame:
+    def _get_feature_importance(self, model, features: List[str], X_sample: Optional[pd.DataFrame] = None) -> pd.DataFrame:
         """
-        Extract feature importance from model.
+        Get feature importance of the best model using SHAP values.
+
+        Args:
+            model: Trained model instance.
+            features: List of feature names used in training.
         """
-        #TODO: understand better here and change if necessary
-        try:
-            if hasattr(model, 'feature_importances_'):
-                # Tree-based models (LightGBM, Random Forest)
-                importance_df = pd.DataFrame({
-                    'feature': features,
-                    'importance': model.feature_importances_
-                }).sort_values('importance', ascending=False)
-            elif hasattr(model, 'coef_'):
-                # Linear models
-                importance_df = pd.DataFrame({
-                    'feature': features,
-                    'importance': np.abs(model.coef_)
-                }).sort_values('importance', ascending=False)
+        if X_sample is not None:
+            # Choose SHAP explainer based on model type
+            if hasattr(model, "feature_importances_"):
+                explainer = shap.TreeExplainer(model)
+            elif hasattr(model, "coef_"):
+                explainer = shap.LinearExplainer(model, X_sample)
             else:
-                # Fallback
-                importance_df = pd.DataFrame({
-                    'feature': features,
-                    'importance': [0] * len(features)
+                explainer = shap.KernelExplainer(model.predict, X_sample)
+
+            shap_values = explainer.shap_values(X_sample)
+
+            # Some SHAP backends return list — use first element
+            if isinstance(shap_values, list):
+                shap_values = shap_values[0]
+
+            mean_abs_shap = np.mean(np.abs(shap_values), axis=0)
+
+            return (
+                pd.DataFrame({
+                    "feature": features,
+                    "importance": mean_abs_shap,
                 })
+                .sort_values("importance", ascending=False)
+            )
 
-            return importance_df
+        # ---- fallback: normal importance when X_sample is None ----
+        if hasattr(model, "feature_importances_"):
+            importance = model.feature_importances_
+        elif hasattr(model, "coef_"):
+            importance = np.abs(model.coef_)
+        else:
+            importance = np.zeros(len(features))
 
-        except Exception as e:
-            self.logger.warning(f"Could not extract feature importance: {str(e)}")
-            return pd.DataFrame({'feature': features, 'importance': [0] * len(features)})
+        return (
+            pd.DataFrame({
+                "feature": features,
+                "importance": importance,
+            })
+            .sort_values("importance", ascending=False)
+        )
 
     def _select_best_model(self):
         """
@@ -289,14 +351,19 @@ class MultiModelComparer:
 
         # Highlight best model
         if self.best_model_name:
-            best_name = self.model_results[self.best_model_name]['name']
+            best_results = self.model_results[self.best_model_name]
+            best_name = best_results['name']
             self.logger.info(f"\nSELECTED FOR PRODUCTION: {best_name}")
 
-            # Show top features for best model
-            top_features = self.model_results[self.best_model_name]['feature_importance'].head(5)
+            fi = best_results.get('feature_importance')
+
             self.logger.info(f"\nTop 5 Features ({best_name}):")
-            for _, row in top_features.iterrows():
-                self.logger.info(f"  {row['feature']}: {row['importance']:.2f}")
+            if isinstance(fi, pd.DataFrame) and not fi.empty:
+                top_features = fi.head(5)
+                for _, row in top_features.iterrows():
+                    self.logger.info(f"  {row['feature']}: {row['importance']:.2f}")
+            else:
+                self.logger.info("  (No feature importance available)")
 
     def predict_future(self, df_route: pd.DataFrame) -> pd.DataFrame:
         """
@@ -329,16 +396,13 @@ class MultiModelComparer:
         df_fut['month'] = fut_month.month
         df_fut['quarter'] = fut_month.quarter
 
-        # "t" is a simple month index from the earliest year in your history
+        # "t" is a simple month index from the earliest year in history
         min_year = df_route['date'].dt.year.min()
         df_fut['t'] = (fut_month.year - min_year) * 12 + fut_month.month
 
-        # Define the exact same feature list used in training
-        FEATURES = self.features  # Use the stored features from training
-
-        # Run the model
+        # Run the model using the stored features from training
         best_model = self.models[self.best_model_name]
-        df_fut['pred_share'] = best_model.predict(df_fut[FEATURES])
+        df_fut['pred_share'] = best_model.predict(df_fut[self.features])
 
         # Pick the winning product per route by highest pred_share
         top = (
@@ -350,51 +414,12 @@ class MultiModelComparer:
 
         return top
 
-    def _build_future_features(self, latest_data: pd.DataFrame) -> pd.DataFrame:
-        """
-        Build feature frame for February 2025 prediction using January 2025 as base.
-
-        PREDICTION LOGIC:
-        "Given January 2025 market conditions and February seasonality,
-         predict each product's market share for February 2025"
-
-        FEATURE UPDATES:
-        - TIME features → Updated to February 2025 (captures seasonality)
-        - ALL OTHER features → Remain from January 2025 (last known state)
-
-        Args:
-            latest_data: January 2025 data (most recent available)
-            target_date: '2025-02' (prediction target)
-
-        Returns:
-            DataFrame ready for February 2025 prediction
-        """
-        # Bring Jan 2025 data
-        df_future = latest_data.copy()
-
-        target_date = self.settings['prediction_target_date']
-
-        # Update date features with Feb 2025
-        target_month = pd.to_datetime(target_date)
-        df_future['date'] = target_month.to_period('M')
-        df_future['month'] = target_month.month
-        df_future['quarter'] = target_month.quarter
-
-        # Update time index
-        if 'date' in latest_data.columns and len(latest_data) > 0:
-            # Convert Period back to timestamp to access datetime properties
-            date_as_timestamp = df_future['date'].dt.to_timestamp()
-            min_year = date_as_timestamp.dt.year.min()
-            df_future['t'] = (target_month.year - min_year) * 12 + target_month.month
-
-        self.logger.info(f"Built future features for {len(df_future)} product-route combinations "
-                         f"targeting {target_date}")
-
-        return df_future
-
     def get_model_comparison_summary(self) -> Dict:
         """
         Get comprehensive comparison summary for reporting.
+
+        Returns:
+            Dictionary summarizing model comparison results.
         """
         summary = {
             'comparison_strategy': 'Temporal Validation (Train: Jan-Nov 2024, Val: Dec 2024, Test: Jan 2025)',

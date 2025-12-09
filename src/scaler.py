@@ -6,6 +6,7 @@ from sklearn.preprocessing import MinMaxScaler, RobustScaler
 class SimpleScaler:
     """
     Simple uniform scaler that scales all numeric features to 0-100 range.
+    This is a basic scaler without domain-specific adjustments.
     """
 
     def __init__(self, settings: dict, logger=None):
@@ -77,7 +78,16 @@ class SimpleScaler:
 class DomainSpecificScaler:
     """
     Domain-aware scaler that applies different scaling methods based on feature types.
-    Best for: Production models, when preserving business meaning matters.
+    Scaling strategies:
+        • Revenue → log transform + MinMax scaling (captures skewed distributions)
+        • Ratio metrics → Robust scaling + MinMax (handles outliers)
+        • Share metrics → convert proportion to percentage scale
+        • Count/time features → MinMax normalization
+        • Weight/volume features → MinMax normalization
+        • Binary indicators → map 0/1 to 0/100 range for comparability
+
+    Args:
+        df: Training DataFrame
     """
 
     def __init__(self, settings, logger=None):
@@ -158,7 +168,7 @@ class DomainSpecificScaler:
         categories = self._get_feature_categories(df)
 
         if self.logger:
-            self.logger.info("[DomainScaler] Fitting domain-specific scalers...")
+            self.logger.info("[DomainScaler] Fitting domain-specific scalers")
 
         # Fit scalers for each category
 

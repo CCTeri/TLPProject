@@ -2,8 +2,6 @@ import pandas as pd
 import os
 from io import StringIO
 from google.cloud import storage
-from datetime import datetime
-from dateutil.relativedelta import relativedelta
 
 
 class Reader:
@@ -18,12 +16,6 @@ class Reader:
     def __init__(self, settings: dict, logger):
         self.settings = settings
         self.logger = logger
-
-        # Parse the reporting period
-        # period = datetime.strptime(settings['period_month'], '%Y%m')
-        # self.period_month = period.strftime('%Y%m')
-        # self.start_date = period.strftime('%Y-%m-%d')
-        # self.end_date = (period + relativedelta(months=1) - relativedelta(days=1)).strftime('%Y-%m-%d')
 
     def read_data(self, bucket_name: str = None, file_name: str = None) -> pd.DataFrame:
         """
@@ -51,12 +43,12 @@ class Reader:
 
     def read_local(self) -> pd.DataFrame:
         """
-        Read the local WACD file defined in settings.
+        Read the local market file defined in settings.
 
         Returns:
             pd.DataFrame: Loaded data frame.
         """
-        path = f"{self.settings['project_input']}/{self.settings['WACD_Local']}"
+        path = f"{self.settings['project_input']}/{self.settings['market_local']}"
         self.logger.info(f"[>] Reading local file: {path}")
         try:
             return pd.read_csv(path, sep="\t")

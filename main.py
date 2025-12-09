@@ -1,5 +1,6 @@
 import yaml
 import os
+from typing import Optional
 import pandas as pd
 from src.logger import init_logger
 from src.reader import Reader
@@ -7,20 +8,32 @@ from src.writer import Writer
 from src.processor import DataProcessor
 from src.feature import FeatureEngineer
 from src.scaler import SimpleScaler, DomainSpecificScaler
-from src.modeler import MultiModelComparer  # Use the simple version
+from src.modeler import MultiModelComparer
 
 
-def run_project():
+def run_project() -> Optional[pd.DataFrame]:
     """
-    Simple TLP Project pipeline:
-      1. Load settings
-      2. Initialize logger
-      3. Read data (GCS or local)
-      4. Process data with feature engineering
-      5. Scale features
-      6. Compare 3 models and pick best one
-      7. Generate Feb 2025 predictions
-      8. Save output locally
+    Execute the complete TLP Project pipeline for product demand prediction.
+
+    This function orchestrates the entire machine learning pipeline:
+    1. Load configuration settings from YAML file
+    2. Initialize logging system
+    3. Read market data from GCS or local file system
+    4. Process and clean raw data
+    5. Engineer features for modeling
+    6. Scale features for model training
+    7. Train and compare multiple models (LightGBM, Random Forest, Linear Regression)
+    8. Select best model based on validation performance
+    9. Generate predictions for target prediction date
+    10. Save predictions to local file system and GCS (if configured)
+
+    Returns:
+        DataFrame containing predictions with columns for origin, destination,
+        product, and predicted market share. Returns None if pipeline fails.
+
+    Raises:
+        FileNotFoundError: If settings file or data file cannot be found
+        ValueError: If required settings are missing or data is invalid
     """
     # Load settings file
     settings_path = os.getenv('SETTINGS_PATH', 'settings.yml')
@@ -40,13 +53,19 @@ def run_project():
     logger.info(f'Reading data from {data_source.upper()}')
     reader = Reader(settings, logger)
     if data_source == 'local':
-        df_wacd = reader.read_data()
+        df_market = reader.read_data()
     else:
-        df_wacd = reader.read_data(bucket, gcs_input)
+        df_market = reader.read_data(bucket, gcs_input)
+
+    # Validate data was loaded successfully
+    if df_market.empty:
+        logger.error("No data loaded. Please check data source configuration.")
+        return None
+    logger.info(f"Loaded {len(df_market)} rows of data")
 
     # Process data
     logger.info('Processing data')
-    df_route = DataProcessor(settings, logger).process_data(df_wacd)
+    df_route = DataProcessor(settings, logger).process_data(df_market)
 
     # Engineer features
     logger.info('Engineering features')
@@ -65,24 +84,36 @@ def run_project():
     # Train and compare models
     logger.info('Comparing models and selecting best one')
     model_comparer = MultiModelComparer(settings, logger)
-    best_model = model_comparer.train_and_compare_models(df_scaled, scaler)
+    model_comparer.train_and_compare_models(df_scaled, scaler)
 
     # Forecast using the best model
     logger.info('Generating predictions for target month')
-    feb_predictions = best_model.predict(df_scaled)
+    predictions = model_comparer.predict_future(df_features)
 
-    # Save output locally
-    logger.info('Saving predictions locally')
+    # Save output
+    logger.info('Saving predictions')
     writer = Writer(settings, logger)
-    local_file = writer.save_output(feb_predictions)
+    
+    # Save locally
+    local_file = writer.save_output(predictions)
+    
+    # Save to GCS
+    gcs_bucket = settings.get('gcs_bucket')
+    gcs_output_path = settings.get('gcs_output_path')
+    
+    if gcs_bucket and gcs_output_path:
+        try:
+            writer.write_data(predictions, gcs_bucket, gcs_output_path)
+        except Exception as e:
+            logger.warning(f"Failed to save to GCS (continuing with local save): {e}")
 
     # Summary
     logger.info('TLP Project completed successfully')
     logger.info(f"Best model: {model_comparer.best_model_name}")
-    logger.info(f"Predictions generated: {len(feb_predictions)} routes")
-    logger.info(f"Output saved to: {local_file}")
+    logger.info(f"Predictions generated: {len(predictions)} routes")
+    logger.info(f"Output saved locally to: {local_file}")
 
-    return feb_predictions
+    return predictions
 
 
 if __name__ == '__main__':

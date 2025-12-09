@@ -10,14 +10,14 @@ data_source: "local"  # Options: "gcs" or "local"
 
 # Data Location
 project_input: "data/input/"
-WACD_Local: 'market_20240101-20250101_product.csv'
+market_local: 'market_20240101-20250101_product.csv'
 
 # Parameters
 trend_threshold: 0.02
 market_size: 25000
 
 # Scaler
-scaling_method: "simple" # simple or domain
+scaling_method: "domain" # simple or domain
 
 # Prediction Configuration
 prediction_date: "2025-02"  # Target prediction date

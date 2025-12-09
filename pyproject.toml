@@ -37,6 +37,7 @@ tzdata = "2024.2"
 flask = "*"
 gcsfs = "*"
 lightgbm = ">=3.3"
+shap = "*"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "8.0.0"

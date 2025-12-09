@@ -55,8 +55,8 @@ class FeatureEngineer:
         """
         features = [
             # Product's revenue share
-            'total_revenue',  # Total review per product
-            'share_revenue',  # revenue share per product
+            'total_revenue',  # Total revenue per product
+            'share_revenue',  # Revenue share per product
 
             # Previous performance
             'lag1_share',  # Last month's market share
@@ -114,7 +114,7 @@ class FeatureEngineer:
         """
         self.logger.info('\t[>] Computing revenue share features')
 
-        # Get the total actual and revenue weight on OD per month
+        # Get the total revenue on O&D per month
         df['total_revenue'] = df.groupby(
             ['origin_city', 'destination_city', 'date']
         )['benchmark_revenue'].transform('sum')
@@ -164,11 +164,11 @@ class FeatureEngineer:
 
         roll_df = (
             df[group_cols + ['date'] + value_cols]
-            .set_index('date')  # roll over the date index
+            .set_index('date')
             .groupby(group_cols)[value_cols]
             .rolling(window=3, min_periods=1)
             .mean()
-            .reset_index()  # brings back date + group cols as normal columns
+            .reset_index()
             .rename(columns={
                 'weight_share': 'ma3_share_wt',
                 'share_revenue': 'ma3_share_rev',
@@ -222,7 +222,7 @@ class FeatureEngineer:
 
     def _add_feature_ratios(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Create ratio and interaction features for cargo profitability analysis.:
+        Create ratio and interaction features for cargo profitability analysis.
         - weighted_revenue: Market share weighted by revenue (popularity × profitability)
         - revenue_per_kg: Yield per actual weight (premium vs commodity indicator)
         - revenue_per_chargeable_kg: Yield per billed weight (pricing efficiency)

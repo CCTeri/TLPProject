@@ -28,3 +28,4 @@ pytest==8.0.0
 flask
 gcsfs
 lightgbm>=3.3
+shap
