@@ -1,48 +1,82 @@
-from typing import Tuple
 import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
+import numpy as np
 
 class DataProcessor:
     """
-    Process the data
+    Comprehensive data processor for cargo market analysis.
 
-    :arg
-        settings (dict): Project settings
-        logger (logging.Logger): Logger object
+    This class handles the complete data processing pipeline from raw market data
+    to model-ready features for predicting product market share across origin-destination routes.
+
+    The processing pipeline includes:
+    1. Data cleaning and validation
+    2. Aggregation by product and route
+    3. Market share calculations
+    4. Feature engineering (seasonality, trends, lags)
+    5. Product trend classification
+
+    Attributes:
+        settings (dict): Configuration parameters for processing
+        logger (logging.Logger): Logger for tracking processing steps
+        trend_threshold (float): Threshold for classifying product trends as stable vs growing/declining
     """
 
     def __init__(self, settings: dict, logger):
+        """
+        Initialize the DataProcessor with configuration settings.
+
+        Args:
+            settings (dict): Project configuration containing processing parameters
+            logger (logging.Logger): Logger instance for tracking operations
+        """
         self.settings = settings
         self.logger = logger
-        self.trend_threshold = settings.get('trend_threshold', 0.02)  # fallback to 2% if not set
-
-        pass
 
     def process_data(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Run all functions for data processing
+        Execute the complete data processing pipeline.
+
+        This method orchestrates all processing steps in the correct sequence:
+        - Data cleaning and validation
+        - Product and route aggregation
+        - Feature engineering for model training
+
+        Args:
+            df (pd.DataFrame): Raw market data with columns for product, origin/destination cities,
+                             dates, and benchmark metrics (weight, revenue)
+
+        Returns:
+            pd.DataFrame: Processed dataset ready for machine learning with features including:
+                        - Market share percentages
+                        - Seasonality indicators
+                        - Lagged values
+                        - Product trend classifications
         """
         self.logger.info('[>] Begin data processing')
-        df = self._clean(df)
-        df_product, df_route = self._prepare_data_product_demand(df)
-        df_feature = self._build_feature_revenue(df_route)
-        df_feature = self._build_feature_seasonality(df_feature)
-        df_feature = self._build_feature_last_month(df_feature)
-        df_feature = self._add_product_trends(df_feature)
+        df = self._clean_raw_data(df)
+        df_route = self._aggregate_market_data(df)
+        df_route = self._classify_product_trends(df_route)
 
-        return df_feature
+        return df_route
 
-    def _clean(self, df) -> pd.DataFrame:
+    def _clean_raw_data(self, df) -> pd.DataFrame:
         """
-        Clean raw data: drop NAs, correct dtypes, etc.
+        Clean and validate raw market data for analysis.
 
-        :return: Dataframe with only valid, clean, monthly-level records remain for modeling
+        This method performs essential data quality checks and transformations:
+        - Converts dates to monthly periods for consistent aggregation
+        - Removes records with missing critical information
+        - Filters out invalid city codes (non-3-letter codes)
+
+        Args:
+            df (pd.DataFrame): Raw market data
+
+        Returns:
+            pd.DataFrame: Cleaned dataset with valid monthly records only
         """
-        self.logger.info(f'\t[>] Begin data cleaning')
-        df = df.copy()
+        self.logger.info(f'\t[>] Cleaning raw data - removing invalid records')
 
-        # Change the data
+        # Convert dates to monthly periods for consistent time-series analysis
         df['date'] = pd.to_datetime(df['date']).dt.to_period('M')
 
         # Remove rows with missing values
@@ -53,7 +87,7 @@ class DataProcessor:
             'date'
         ])
 
-        # Remove the cities that are not city codes.
+        # Filter for valid 3-letter city codes only
         mask = (
                 df['origin_city'].str.len().le(3) &
                 df['destination_city'].str.len().le(3)
@@ -62,29 +96,27 @@ class DataProcessor:
 
         return df
 
-    def _prepare_data_product_demand (self, df:pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    def _aggregate_market_data(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Get the product and demand data
+        Aggregate market data by route to calculate market shares.
 
-        :param df: the WACD market data
-        :return:
-            - df_product: product x month total
-            - df_route: product x O&D x month total
+        Creates route-level aggregation with market share calculations showing what
+        percentage of each route's total volume each product represents.
+
+        Args:
+            df: Cleaned market data
+
+        Returns:
+            Route-level data with market share calculations
         """
-        self.logger.info(f'\t[>] Prepare the product and route demand data')
+        self.logger.info(f'\t[>] Aggregating market data by product and route')
 
+        # Define the key benchmark metrics to aggregate
         bench_cols = [
             'benchmark_actual_weight',
             'benchmark_chargeable_weight',
             'benchmark_revenue'
         ]
-
-        # Aggregate: Product Level
-        df_product = (
-            df
-            .groupby(['product', 'date'], as_index=False)[bench_cols]
-            .sum()
-        )
 
         # Aggregate benchmark metrics by product x origin x destination x month
         df_route = (
@@ -100,96 +132,39 @@ class DataProcessor:
             .transform('sum')
         )
 
-        # Weight Share = what is the % of weight share does the product have for the OD pair
+        df_route = df_route[df_route['total_weight'] > self.settings['market_size']]
+
+        # Calculate each product's weight share of the total route volume
+        # This is the target variable for prediction
         df_route['weight_share'] = df_route['benchmark_actual_weight'] / df_route['total_weight']
-        df_route['weight_share'] = df_route['weight_share'] .fillna(0)
+        df_route['weight_share'] = df_route['weight_share'].fillna(0)
 
-        return df_product, df_route
+        return df_route
 
-    def _build_feature_revenue(self, df_route: pd.DataFrame) -> pd.DataFrame:
+    def _classify_product_trends(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Computes how much revenue each product earned as a share of total route revenue that month
+        Classify product trends for Spotfire dashboard business insight and visualization.
 
-        :return: Dataframe with share_revenue added
+        This method identifies whether each product is experiencing growth, decline,
+        stability, or market entry/exit patterns. The classification compares current
+        market share to historical average performance.
+
+        Trend Categories:
+        - 'new': Product has current share but no historical presence
+        - 'not_present': Product has no current or historical presence
+        - 'disappeared': Product had historical presence but zero current share
+        - 'stable': Current share within threshold of historical average
+        - 'growth': Current share significantly above historical average
+        - 'decline': Current share significantly below historical average
+
+        Args:
+            df (pd.DataFrame): Dataset with all previous features
+
+        Returns:
+            pd.DataFrame: Final dataset with trend classifications
         """
-        self.logger.info('\t[>] Building features: actual weight')
+        self.logger.info('\t[>] Classifying product market trends')
 
-        df = df_route.copy()
-
-        # Get the total actual and revenue weight on OD per month
-        df['total_revenue'] = df.groupby(
-            ['origin_city', 'destination_city', 'date']
-        )['benchmark_revenue'].transform('sum')
-
-        # Get the share of the product
-        df['share_revenue'] = df['benchmark_revenue'] / df['total_revenue']
-        df['share_revenue'] = df['share_revenue'].fillna(0)
-
-        return df
-
-    def _build_feature_seasonality(self, df_route: pd.DataFrame) -> pd.DataFrame:
-        """
-        Building seasonality features of Month, Quater, and rolling averages
-
-        :return: DataFrame with added columns: month, quarter, ma3_share_wt, ma3_share_rev, ma3_revenue
-        """
-        self.logger.info('\t[>] Building features: seasonality')
-
-        df = df_route.copy()
-
-        df['date'] = df['date'].dt.to_timestamp()
-
-        df['month'] = df['date'].dt.month
-        df['quarter'] = df['date'].dt.quarter
-
-        # a simple numeric index for time (e.g. Jan 2024 → 1, Feb 2024 → 2, … Jan 2025 → 13)
-        years = df['date'].dt.year
-        df['t'] = (years - years.min()) * 12 + df['month']
-
-        # 3-month rolling averages to capture recent trends and smooth volatility
-        group_cols = ['product', 'origin_city', 'destination_city']
-        df = df.sort_values(group_cols + ['date'])
-        df['ma3_share_wt'] = df.groupby(group_cols)['weight_share'].transform(
-            lambda x: x.rolling(3, min_periods=1).mean())
-        df['ma3_share_rev'] = df.groupby(group_cols)['share_revenue'].transform(
-            lambda x: x.rolling(3, min_periods=1).mean())
-        df['ma3_revenue'] = df.groupby(group_cols)['benchmark_revenue'].transform(
-            lambda x: x.rolling(3, min_periods=1).mean())
-
-        return df
-
-    def _build_feature_last_month(self, df_route: pd.DataFrame) -> pd.DataFrame:
-        """
-        for each row representing a given (product, origin_city, destination_city, date),
-        we pull in four numbers from the previous month on that same series.
-            - Give model access to the immediate past — good for forecasting and detecting short-term momentum
-
-        """
-        self.logger.info('\t[>] Building features: Apply the data of previous month')
-
-        df = df_route.copy()
-
-        # for each product of O&D, see the difference of the current value from the past 1 month
-        group_cols = ['product', 'origin_city', 'destination_city']
-        df['lag1_actual_wt'] = df.groupby(group_cols)['benchmark_actual_weight'].shift(1)
-        df['lag1_chargeable_wt'] = df.groupby(group_cols)['benchmark_chargeable_weight'].shift(1)
-        df['lag1_revenue'] = df.groupby(group_cols)['benchmark_revenue'].shift(1)
-        df['lag1_share'] = df.groupby(group_cols)['weight_share'].shift(1)
-        df = df.fillna(0)
-
-        return df
-
-    def _add_product_trends(self, df):
-        """
-        This function is used to get a product trend and only used for a visualization with historic data.
-
-        This identifies whether a product is showing 'growth', 'not_present', 'decline', 'stable', 'new',
-        or 'disappeared' behavior, by comparing the current month's share to the average of past 3 active (non-zero)
-        months.
-
-        :param df: DataFrame containing weight_share per product × O&D × date
-        :return: DataFrame with added columns: weight_share_ma3, trend, active_count_ma3
-        """
         df = df.sort_values(['origin_city', 'destination_city', 'product', 'date'])
 
         # Exclude past months with 0 weight share when computing the rolling average (=.shift(1)),
@@ -199,11 +174,12 @@ class DataProcessor:
             .transform(lambda x: x.shift(1).where(x.shift(1) > 0).rolling(3, min_periods=1).mean())
         )
 
+        # Apply trend classification logic
         df['product_trend'] = df.apply(
-            lambda row: self._classify_trend(row['weight_share'], row['weight_share_ma3']), axis=1
+            lambda row: self._determine_trend_category(row['weight_share'], row['weight_share_ma3']), axis=1
         )
 
-        # how often a product was active in the past
+        # Count how often a product was active in the past
         df['active_count_ma3'] = (
             df.groupby(['origin_city', 'destination_city', 'product'])['weight_share']
             .transform(lambda x: x.shift(1).gt(0).rolling(3).sum())
@@ -211,31 +187,34 @@ class DataProcessor:
 
         return df
 
-    def _classify_trend(self, current, past_avg):
+    def _determine_trend_category(self, current_share: float, historical_average: float) -> str:
         """
-        Classify trend comparing current weight_share to 3-month average.
-        Threshold defines tolerance for 'stable'.
+        Determine the trend category for a product based on current vs historical performance.
 
-        :param current: Current month's weight share
-        :param past_avg: 3-month rolling average of weight share
-        :return: trend label
+        This helper method implements the business logic for trend classification
+        using the configured threshold for stability determination.
+
+        Args:
+            current_share (float): Current month's market share
+            historical_average (float): 3-month rolling average of historical shares
+
+        Returns:
+            str: Trend category ('new', 'not_present', 'disappeared', 'stable', 'growth', 'decline')
         """
-        if pd.isna(past_avg):
-            return 'new' if current > 0 else 'not_present'
+        # Handle cases with no historical data
+        if pd.isna(historical_average):
+            return 'new' if current_share > 0 else 'not_present'
 
-        elif current == 0 and past_avg > 0:
+        # Product disappeared from market
+        if current_share == 0 and historical_average > 0:
             return 'disappeared'
 
-        elif abs(current - past_avg) <= self.trend_threshold:
+        # Compare current performance to historical baseline
+        share_difference = abs(current_share - historical_average)
+
+        if share_difference <= self.settings['trend_threshold']:
             return 'stable'
-
-        elif current > past_avg:
+        elif current_share > historical_average:
             return 'growth'
-
-        elif current < past_avg:
+        else:  # current_share < historical_average
             return 'decline'
-
-
-
-
-
