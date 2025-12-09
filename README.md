@@ -1,5 +1,6 @@
 # TLP Project: Product Market Share Analysis
 A machine learning tool that calculates and predicts product type market shares per Origin-Destination (O&D) route. For any given origin–destination route and time period, this tool computes how each cargo "product" (General, Perishables, Pharma, DGR, etc.) shares the total market volume.
+Note: Data is removed from github intentionally for confidentiality.
 
 
 ## Key Features
