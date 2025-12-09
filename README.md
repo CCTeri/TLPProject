@@ -34,19 +34,10 @@ The pipeline performs the following steps:
    - Validation: Dec 2024
    - Test: Jan 2025
    - Models: LightGBM, Random Forest, Linear Regression
+   - Feature Importance: SHAP values for interpretability
 6. **Model Selection**: Selects best model based on validation RMSE (lowest error)
 7. **Prediction**: Generates next-month share forecasts for each product-route combination using the best model
-8. **Output**: Provides predictions with all features for further analysis in Power BI or other tools
-
-By surfacing which products dominate which corridors and where demand is shifting, it supports pricing, capacity planning, performance monitoring, and risk management in a single, end-to-end pipeline.
-
-
-## Prerequisites
-- Python 3.11+
-- Poetry (install from https://python-poetry.org/docs/#installation)
-- Access to Google Cloud Storage (GCS) if using cloud data sources
-- Required credentials for GCS stored in `key/key_cloudstorage.json`
-
+8. **Output**: Provides predictions with all features and model details in CSV format to GCS
 
 ## Project Structure
 ```
@@ -62,7 +53,7 @@ TLPProject/
 │   ├── input/          # Input data files
 │   └── output/         # Generated predictions
 ├── key/
-│   └── key_cloudstorage.json  # GCS credentials (not in version control)
+│   └── key_cloudstorage.json  # GCS credentials
 ├── src/
 │   ├── reader.py       # Data reading utilities (GCS/local)
 │   ├── processor.py    # Data processing and aggregation
@@ -79,14 +70,15 @@ TLPProject/
 ## Models
 The tool automatically compares three models and selects the best performer using temporal validation:
 
-1. **LightGBM**: Gradient boosting framework optimized for speed and performance
+1. **LightGBM**: 
    - Uses validation set for early stopping
    - Configurable via `lightgbm_params` in settings.yml
-2. **Random Forest**: Ensemble method providing robust predictions
+2. **Random Forest**: 
    - Configurable via `rf_params` in settings.yml
 3. **Linear Regression**: Baseline model for comparison
    - Configurable via `lr_params` in settings.yml
 
+Feature importance is calculated using SHAP values for interpretability.
 Model hyperparameters can be configured in `settings.yml`. The best model is selected based on the lowest validation RMSE. All models are evaluated on train, validation, and test sets with metrics including RMSE, MAE, R², and MAPE.
 
 ## Output Format
