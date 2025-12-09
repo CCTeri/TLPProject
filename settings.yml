@@ -5,14 +5,60 @@ log_level: "debug"
 project_name: "Product Popularity Model"
 project_version: "v2025.02"
 
-# Run settings: select a period
-#period_month: '202501' # YYYYMM
+# Data Source Configuration
+data_source: "local"  # Options: "gcs" or "local"
 
 # Data Location
 project_input: "data/input/"
-
-# Input Data Files
-WACD_Local: 'AF_KL_MP_20240101-20250101_product.csv'
+market_local: 'market_20240101-20250101_product.csv'
 
 # Parameters
 trend_threshold: 0.02
+market_size: 25000
+
+# Scaler
+scaling_method: "domain" # simple or domain
+
+# Prediction Configuration
+prediction_date: "2025-02"  # Target prediction date
+
+# GCS Configuration
+gcs_bucket: "tlp_project_demo"
+gcs_input_path: "Input/market_20240101-20250101_product.csv"
+gcs_output_path: "Output/best_model_predictions.csv"
+
+# Training parameters (shared across models)
+early_stopping_rounds: 50
+eval_metric: "rmse"
+
+# Model Configurations for Multi-Model Comparison
+# LightGBM Parameters
+# Why these values:
+# - n_estimators: 200 (enough trees for good performance, not too slow)
+# - learning_rate: 0.1 (standard rate, not too aggressive)
+# - max_depth: 6 (prevents overfitting on small dataset)
+lightgbm_params:
+  n_estimators: 200
+  learning_rate: 0.1
+  max_depth: 6
+  random_state: 42
+  verbose: -1
+
+# Random Forest Parameters
+# Why these values:
+# - n_estimators: 100 (good ensemble size for stability)
+# - max_depth: 8 (slightly deeper than LightGBM for different approach)
+# - min_samples_split: 5 (prevents overfitting)
+rf_params:
+  n_estimators: 100
+  max_depth: 8
+  min_samples_split: 5
+  min_samples_leaf: 2
+  random_state: 42
+  n_jobs: -1
+
+# Linear Regression Parameters
+# Why these values:
+# - fit_intercept: true (allows for baseline market share)
+lr_params:
+  fit_intercept: true
